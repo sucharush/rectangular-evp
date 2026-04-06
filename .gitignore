@@ -1,0 +1,32 @@
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+pip-log.txt
+.pytest_cache/
+
+# MATLAB
+*.asv
+*.slxc
+*.mex*
+*.log
+DerivedData/
+toolbox_cache/
+sfunction_debug_report.txt
+
+# MATLAB Live Session/App files
+.matlab/
