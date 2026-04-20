@@ -1,7 +1,7 @@
 function cfg = case_polygon_hshape()
     a = 2;
     l = 1;
-    t = 0.3;
+    t = 0.1;
 
     cfg = struct();
     cfg.name = 'polygon_hshape';
