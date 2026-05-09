@@ -194,8 +194,10 @@ function result = solve_aaa(op, opts)
 
     a = opts.interval(1);
     b = opts.interval(2);
-
+    
+    % t0 = tic;
     raw = aaa_rect_pencil_interval(op, a, b, opts.aaa);
+    % elapsed_time = toc(t0);
 
     summary = struct();
     summary.interval = [a, b];
@@ -228,8 +230,11 @@ function result = solve_aaa(op, opts)
             end
 
             Rb = aaa_eval_matrix_barycentric(lam, raw.zj, raw.wj, raw.D);
+            % Rb = aaa_eval_matrix_newton(lam, raw.D, raw.sigma, raw.beta, raw.h, raw.k);
+            % disp(Rb)
 
             abserr_bary(j) = norm(Qtrue - Rb, 'fro');
+            % disp(abserr_bary(j))
             relerr_bary(j) = abserr_bary(j) / max(norm(Qtrue, 'fro'), 1e-14);
         end
 
@@ -244,6 +249,7 @@ function result = solve_aaa(op, opts)
     logs.interval = [a, b];
     logs.method = raw.method;
     logs.degree = raw.m;
+    logs.elapsed_time = raw.elapsed_time;
     logs.n_support_points = numel(raw.zj);
 
     result = struct();

@@ -30,3 +30,5 @@ sfunction_debug_report.txt
 
 # MATLAB Live Session/App files
 .matlab/
+*.mat
+*plot*

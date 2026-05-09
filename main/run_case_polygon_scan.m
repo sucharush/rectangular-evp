@@ -43,6 +43,7 @@ addpath(fullfile(project_root, 'plots'));
 % 2. build problem
 % ---------------------------------
 cfg = case_polygon_hshape();
+% cfg = case_polygon_drum('left');
 % cfg = case_polygon_lshape();
 cfg.sampling.boundary_fun = @sample_boundary_chebyshev;
 % TODO: spport @sample_interior_uniform (is it necessary??)
@@ -58,7 +59,7 @@ sigma_fun = @(lam) problem.ops.sigma(lam);
 opts = struct();
 
 opts.scan = struct();
-opts.scan.lamvec = 4:0.05:13;
+opts.scan.lamvec = 10:0.05:13;
 opts.scan.detect_mode = 'strict_local_min';
 
 opts.refine = struct();

@@ -295,8 +295,10 @@ function out = aaa_rect_pencil_interval(op, a, b, opts)
     aaa_opts.tol = opts.aaa_tol;
     aaa_opts.max_norm = opts.max_norm;
     aaa_opts.svd_update = opts.svd_update;
-
+    
+    t0 = tic;
     [zj, wj, ind, stats_aaa, statsT_aaa] = sketchAAA(GZ_normalized, Z, opts.mmax, aaa_opts);
+    elapsed_time = toc(t0);
 
     zj  = zj(:);
     wj  = wj(:);
@@ -387,6 +389,7 @@ function out = aaa_rect_pencil_interval(op, a, b, opts)
 
     out.stats_aaa = stats_aaa;
     out.statsT_aaa = statsT_aaa;
+    out.elapsed_time = elapsed_time;
 
     % mode-specific stored data
     if strcmpi(out.method, 'procrustes_from_a')
