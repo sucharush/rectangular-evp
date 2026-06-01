@@ -5,25 +5,26 @@ function QB = build_QB_polygon(geom, cfg, lam)
 % 3. QR truncation
 % 4. return boundary block QB
 
-    A = build_A_polygon(geom.P, geom.corner_list, geom.Mcorner, lam);
+    A = build_A_polygon(geom, lam);
+    qr_opts = struct( ...
+        'normalize_columns', is_true_field(cfg, 'normalize_columns'), ...
+        'pivot', is_true_field(cfg, 'qr_pivot'), ...
+        'sign_fix', is_true_field(cfg, 'qr_sign_fix'), ...
+        'qr_tau', get_field_or_empty(cfg, 'qr_tau'));
 
-    if isfield(cfg, 'normalize_columns') && cfg.normalize_columns
-        A = A ./ max(vecnorm(A), 1e-300);
+    QB = build_QB_from_A(A, geom.mB, qr_opts);
+end
+
+
+function tf = is_true_field(s, name)
+    tf = isfield(s, name) && ~isempty(s.(name)) && s.(name);
+end
+
+
+function value = get_field_or_empty(s, name)
+    if isfield(s, name)
+        value = s.(name);
+    else
+        value = [];
     end
-
-    [Q, R, ~] = qr(A, 0);
-
-    if isfield(cfg, 'qr_tau') && ~isempty(cfg.qr_tau)
-        d = abs(diag(R));
-        if ~isempty(d)
-            r = find(d >= cfg.qr_tau * d(1), 1, 'last');
-            if isempty(r)
-                Q = Q(:, []);
-            else
-                Q = Q(:, 1:r);
-            end
-        end
-    end
-
-    QB = Q(1:geom.mB, :);
 end

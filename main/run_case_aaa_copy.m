@@ -19,7 +19,7 @@ cfg = case_polygon_drum('left');
 cfg.qr_tau = 0;      % no truncation, keep QB size fixed
 cfg.nb_per_edge = 10;
 cfg.Mcorner = 10;
-cfg.nI = 50;
+cfg.nI = 10;
 
 problem = build_polygon_problem(cfg);
 
@@ -289,14 +289,15 @@ saveas(gcf, 'saved_plots/continue.eps', 'epsc');
 % ============================================================
 % Plot 3: sigma_min on linearized pencils for all 4 outputs
 % ============================================================
-% lam_true = [ ...
-%     7.248077862494475, ...
-%     9.209294998335231, ...
-%     10.596985691456322];
 lam_true = [ ...
-    7.247948913733, ...
-    9.208978724772, ...
-    10.594985597455];
+    7.248077955423, ...
+    9.209295403292, ...
+    10.596986220784];
+% 7.248077955423  9.209295403292 10.596986220784
+% lam_true = [ ...
+%     7.247948913733, ...
+%     9.208978724772, ...
+%     10.594985597455];
 delta = 0.03;
 
 lam_coarse = linspace(a, b, 41);
@@ -316,7 +317,7 @@ if isempty(idx4)
     error('ell = 4 not found in ell_list.');
 end
 
-tls_imag_tol = 1e-1;
+tls_imag_tol = 1e-2;
 tls_top_k = 10;
 pencil_data = cell(2, 1);
 
@@ -332,7 +333,7 @@ styles = {'o-', 's--'};
 
 for k = 1:2
     out = outs{k};
-    [A, B] = build_rectangular_linear_pencil(out.D, out.sigma, out.beta, out.h, out.k);
+    [A, B] = build_star_barycentric_pencil(out.D, out.zj, out.wj);
     tls_data = collect_tls_pencil_data(A, B, [a, b], tls_imag_tol);
     pencil_data{k} = struct('A', A, 'B', B, 'tls', tls_data);
 
@@ -393,61 +394,187 @@ function QB = build_QB_from_Aop(A_op, mB, lam)
 
     QB = Q(1:mB, :);
 end
-function [A, B] = build_rectangular_linear_pencil(D, sigma, beta, h, k)
-% Direct rectangular analogue of Theorem 3.
-%
-% D{1},...,D{m+1} correspond to D_0,...,D_m, each p-by-q
-% sigma, beta, h, k are length-m
+% function [A, B] = build_star_barycentric_pencil(D, z_nodes, w_weights)
+% % Star-topology rectangular linearization for the barycentric form.
+% %
+% % State blocks are [x, y_1, ..., y_{d+1}] with x the global q-vector.
+% 
+%     d = numel(z_nodes) - 1;
+%     [p, q] = size(D{1});
+% 
+%     nrows = p + (d + 1) * q;
+%     ncols = (d + 2) * q;
+% 
+%     A = sparse(nrows, ncols);
+%     B = sparse(nrows, ncols);
+% 
+%     % Top block row: weighted barycentric sum, shifted by one block for x.
+%     for j = 1:(d + 1)
+%         cols = j * q + (1:q);
+%         A(1:p, cols) = w_weights(j) * D{j};
+%     end
+% 
+%     % Lower block rows: x + z_j y_j = lambda y_j.
+%     Iq = speye(q);
+%     for i = 1:(d + 1)
+%         rows = p + (i - 1) * q + (1:q);
+%         col_x = 1:q;
+%         col_yi = i * q + (1:q);
+% 
+%         A(rows, col_x) = Iq;
+%         A(rows, col_yi) = z_nodes(i) * Iq;
+% 
+%         B(rows, col_yi) = Iq;
+%     end
+% 
+%     norm_top = norm(A(1:p, :), 'inf');
+%     norm_bot = norm(A(p+1:end, :), 'inf') + norm(B(p+1:end, :), 'inf');
+% 
+%     gamma = norm_bot / max(norm_top, 1e-14);
+%     A(1:p, :) = gamma * A(1:p, :);
+% end
+function [A, B] = build_star_barycentric_pencil(D, z_nodes, w_weights)
+% Star-topology linear pencil strictly conditioned for TLS eigenvalue extraction.
 
-    m = numel(beta);
-    [p,q] = size(D{1});
-
-    nrows = p + (m-1)*q;
-    ncols = m*q;
-
+    d = numel(z_nodes) - 1;
+    [p, q] = size(D{1});
+    
+    nrows = p + (d+1)*q;
+    ncols = (d+2)*q;
+    
     A = sparse(nrows, ncols);
     B = sparse(nrows, ncols);
-
-    hm = h(m);
-    km = k(m);
-    betam = beta(m);
-
-    % top block row
-    for j = 1:(m-1)
-        cols = (j-1)*q + (1:q);
-        A(1:p, cols) = hm * D{j};
-        B(1:p, cols) = km * D{j};
+    
+    % --- CRITICAL FIX 1: Normalize Barycentric Weights ---
+    % This eliminates internal dynamic range explosions without altering the roots.
+    w_weights = w_weights / max(abs(w_weights)); 
+    
+    % 1. Top block row (Physics equation)
+    for j = 1:(d+1)
+        cols = j*q + (1:q); 
+        A(1:p, cols) = w_weights(j) * D{j};
     end
-
-    cols = (m-1)*q + (1:q);
-    % FIX 1: Removed spurious 'hm' from the D{m+1} tail correction
-    A(1:p, cols) = hm * D{m} - (sigma(m) / betam) * D{m+1};
-    B(1:p, cols) = km * D{m} - (1 / betam) * D{m+1};
-
+    
+    % 2. Lower block rows (Math recurrence: x + z_i * y_i)
     Iq = speye(q);
-
-    % lower block rows
-    for i = 1:(m-1)
+    for i = 1:(d+1)
         rows      = p + (i-1)*q + (1:q);
-        col_left  = (i-1)*q + (1:q);
-        col_right = i*q     + (1:q);
-
-        % no 'h(i)' from the last term
-        A(rows, col_left)  = sigma(i) * Iq;
-        A(rows, col_right) = h(i) * beta(i)  * Iq;
-
-        B(rows, col_left)  = 1 * Iq;
-        B(rows, col_right) = k(i) * beta(i)  * Iq;
+        col_x     = 1:q;                  
+        col_yi    = i*q + (1:q);          
+        
+        A(rows, col_x)  = 1 * Iq;
+        A(rows, col_yi) = z_nodes(i) * Iq;
+        B(rows, col_yi) = 1 * Iq;
     end
-    % Compute a rough norm of the top row vs the identity blocks
-    norm_top = norm(A(1:p, :), 'inf') + norm(B(1:p, :), 'inf');
+    
+    % --- CRITICAL FIX 2: Deliberate TLS Weighting ---
+    % Instead of blind block balancing, we explicitly measure the norms.
+    % Assuming D{j} are properly scaled, norm_top should already be reasonable now.
+    norm_top = norm(A(1:p, :), 'inf'); 
     norm_bot = norm(A(p+1:end, :), 'inf') + norm(B(p+1:end, :), 'inf');
     
-    % Scale the top row equations to match the lower recurrence equations
-    gamma = norm_bot / max(norm_top, 1e-14);
-    A(1:p, :) = gamma * A(1:p, :);
-    B(1:p, :) = gamma * B(1:p, :);
+    % Only apply a gentle gamma if the scale disparity is still
+    % disastrously large...
+    ratio = norm_bot / max(norm_top, eps);
+    if ratio > 1e2 || ratio < 1e-2
+        % Only act if there is a severe scale mismatch
+        gamma = sqrt(ratio); % A milder preconditioner to prevent dominating the SVD
+        A(1:p, :) = gamma * A(1:p, :);
+        B(1:p, :) = gamma * B(1:p, :); 
+    end
 end
+
+% Legacy chain-style barycentric linearization kept for reference.
+% function [A, B] = build_barycentric_linear_pencil(D, z_nodes, w_weights)
+% % Rectangular linearization built directly from the barycentric form.
+% %
+% % D{1},...,D{d+1} correspond to sampled blocks F(z_j), each p-by-q.
+% % z_nodes and w_weights are the barycentric support points and weights.
+%
+%     d = numel(z_nodes) - 1;
+%     [p, q] = size(D{1});
+%
+%     nrows = p + d * q;
+%     ncols = (d + 1) * q;
+%
+%     A = sparse(nrows, ncols);
+%     B = sparse(nrows, ncols);
+%
+%     for j = 1:(d + 1)
+%         cols = (j - 1) * q + (1:q);
+%         A(1:p, cols) = w_weights(j) * D{j};
+%     end
+%
+%     Iq = speye(q);
+%     for i = 1:d
+%         rows = p + (i - 1) * q + (1:q);
+%         col_left = (i - 1) * q + (1:q);
+%         col_right = i * q + (1:q);
+%
+%         A(rows, col_left) = z_nodes(i) * Iq;
+%         A(rows, col_right) = -z_nodes(i + 1) * Iq;
+%
+%         B(rows, col_left) = Iq;
+%         B(rows, col_right) = -Iq;
+%     end
+%
+%     norm_top = norm(A(1:p, :), 'inf');
+%     norm_bot = norm(A(p+1:end, :), 'inf') + norm(B(p+1:end, :), 'inf');
+%
+%     gamma = norm_bot / max(norm_top, 1e-14);
+%     A(1:p, :) = gamma * A(1:p, :);
+% end
+
+% Legacy Newton-style linearization kept for reference.
+% function [A, B] = build_rectangular_linear_pencil(D, sigma, beta, h, k)
+% % Direct rectangular analogue of Theorem 3.
+% %
+% % D{1},...,D{m+1} correspond to D_0,...,D_m, each p-by-q
+% % sigma, beta, h, k are length-m
+%
+%     m = numel(beta);
+%     [p,q] = size(D{1});
+%
+%     nrows = p + (m-1)*q;
+%     ncols = m*q;
+%
+%     A = sparse(nrows, ncols);
+%     B = sparse(nrows, ncols);
+%
+%     hm = h(m);
+%     km = k(m);
+%     betam = beta(m);
+%
+%     for j = 1:(m-1)
+%         cols = (j-1)*q + (1:q);
+%         A(1:p, cols) = hm * D{j};
+%         B(1:p, cols) = km * D{j};
+%     end
+%
+%     cols = (m-1)*q + (1:q);
+%     A(1:p, cols) = hm * D{m} - (sigma(m) / betam) * D{m+1};
+%     B(1:p, cols) = km * D{m} - (1 / betam) * D{m+1};
+%
+%     Iq = speye(q);
+%     for i = 1:(m-1)
+%         rows      = p + (i-1)*q + (1:q);
+%         col_left  = (i-1)*q + (1:q);
+%         col_right = i*q     + (1:q);
+%
+%         A(rows, col_left)  = sigma(i) * Iq;
+%         A(rows, col_right) = h(i) * beta(i)  * Iq;
+%
+%         B(rows, col_left)  = Iq;
+%         B(rows, col_right) = k(i) * beta(i)  * Iq;
+%     end
+%
+%     norm_top = norm(A(1:p, :), 'inf') + norm(B(1:p, :), 'inf');
+%     norm_bot = norm(A(p+1:end, :), 'inf') + norm(B(p+1:end, :), 'inf');
+%
+%     gamma = norm_bot / max(norm_top, 1e-14);
+%     A(1:p, :) = gamma * A(1:p, :);
+%     B(1:p, :) = gamma * B(1:p, :);
+% end
 
 function tls_data = collect_tls_pencil_data(A, B, interval, imag_tol)
     [vec_tls_all, lam_tls_all] = tls_pencil_eigs(full(A), full(B));
@@ -544,11 +671,12 @@ function report_tls_block_postfilter(out, pencil_data, lam_true, top_k, label)
     lam_tls_all = tls_data.lam_all;
     vec_tls_all = tls_data.vec_all;
     idx_keep = tls_data.idx_keep;
-    m = out.m;
+
+    nblocks = numel(out.zj);
     q = out.q;
 
-    if size(vec_tls_all, 1) ~= m * q
-        error('report_tls_block_postfilter: TLS eigenvector length does not match m*q.');
+    if size(vec_tls_all, 1) ~= (nblocks + 1) * q
+        error('report_tls_block_postfilter: TLS eigenvector length does not match (numel(zj)+1)*q.');
     end
 
     nkeep = numel(idx_keep);
@@ -566,8 +694,7 @@ function report_tls_block_postfilter(out, pencil_data, lam_true, top_k, label)
         lam = lam_keep(t);
         x = vec_tls_all(:, j);
 
-        bj = local_newton_basis_prefix(lam, out.sigma, out.beta, out.h, out.k);
-        [U, n_valid] = local_build_tls_block_subspace(x, bj, q);
+        [U, n_valid] = local_build_star_barycentric_tls_subspace(x, lam, out.zj, q);
         if isempty(U)
             continue;
         end
@@ -583,7 +710,7 @@ function report_tls_block_postfilter(out, pencil_data, lam_true, top_k, label)
         subspace_dim(t) = size(U, 2);
         n_valid_blocks(t) = n_valid;
 
-        y_first = local_extract_first_block_y(x, q);
+        y_first = local_extract_first_star_block(x, q);
         if ~isempty(y_first)
             y_first_norm = norm(y_first);
             first_block_score(t) = norm(Rb * y_first) / max(y_first_norm, 1e-14);
@@ -621,38 +748,33 @@ function report_tls_block_postfilter(out, pencil_data, lam_true, top_k, label)
     end
 end
 
-function bj = local_newton_basis_prefix(z, sigma, beta, h, k)
-    m = numel(beta);
-    bj = ones(m, 1);
+function [U, n_valid] = local_build_star_barycentric_tls_subspace(x, lam, z_nodes, q)
+    nblocks = numel(z_nodes);
+    X = reshape(x, q, nblocks + 1);
+    Y = zeros(q, nblocks + 1);
+    keep = false(1, nblocks + 1);
 
-    for j = 1:(m-1)
-        denom = beta(j) * (h(j) - k(j) * z);
-        if ~isfinite(denom) || abs(denom) < 1e-14
-            bj(j+1:end) = NaN;
-            return;
-        end
-        bj(j+1) = ((z - sigma(j)) / denom) * bj(j);
+    % The first block is the global x block.
+    x0 = X(:, 1);
+    if all(isfinite(x0)) && norm(x0) > 0
+        Y(:, 1) = x0;
+        keep(1) = true;
     end
-end
 
-function [U, n_valid] = local_build_tls_block_subspace(x, bj, q)
-    m = numel(bj);
-    X = reshape(x, q, m);
-    Y = zeros(q, m);
-    keep = false(1, m);
-
-    for j = 1:m
-        if ~isfinite(bj(j)) || abs(bj(j)) < 1e-14
+    % Each y_j block provides an additional x candidate via x = (lambda - z_j) y_j.
+    for j = 1:nblocks
+        scale = lam - z_nodes(j);
+        if ~isfinite(scale) || abs(scale) < 1e-14
             continue;
         end
 
-        yj = X(:, j) / bj(j);
-        if any(~isfinite(yj))
+        xj = scale * X(:, j + 1);
+        if any(~isfinite(xj)) || norm(xj) == 0
             continue;
         end
 
-        Y(:, j) = yj;
-        keep(j) = true;
+        Y(:, j + 1) = xj;
+        keep(j + 1) = true;
     end
 
     n_valid = nnz(keep);
@@ -661,8 +783,8 @@ function [U, n_valid] = local_build_tls_block_subspace(x, bj, q)
         return;
     end
 
-    Y = Y(:, keep);
-    [Q, R] = qr(Y, 0);
+    Ykeep = Y(:, keep);
+    [Q, R] = qr(Ykeep, 0);
     diagR = abs(diag(R));
 
     if isempty(diagR)
@@ -680,7 +802,7 @@ function [U, n_valid] = local_build_tls_block_subspace(x, bj, q)
     end
 end
 
-function y = local_extract_first_block_y(x, q)
+function y = local_extract_first_star_block(x, q)
     if numel(x) < q
         y = [];
         return;

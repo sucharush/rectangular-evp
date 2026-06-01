@@ -22,6 +22,6 @@ function cfg = case_polygon_lshape()
     cfg.sampling.interior_fun = @sample_interior_uniform;
 
     % operator / QR policy
-    cfg.normalize_columns = true;
+    cfg.normalize_columns = false;
     cfg.qr_tau = 1e-13;
 end

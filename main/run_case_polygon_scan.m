@@ -43,12 +43,20 @@ addpath(fullfile(project_root, 'plots'));
 % 2. build problem
 % ---------------------------------
 cfg = case_polygon_hshape();
+cfg.qr_pivot = true;
 % cfg = case_polygon_drum('left');
 % cfg = case_polygon_lshape();
 cfg.sampling.boundary_fun = @sample_boundary_chebyshev;
 % TODO: spport @sample_interior_uniform (is it necessary??)
-cfg.nb_per_edge = 40;
-cfg.Mcorner = 40;
+cfg.nb_per_edge = 50;
+cfg.Mcorner = 50;
+cfg.nI = 100;
+
+
+cfg = case_polygon_drum('left');
+cfg.qr_tau = 0;      % no truncation, keep QB size fixed
+cfg.nb_per_edge = 10;
+cfg.Mcorner = 10;
 cfg.nI = 50;
 problem = build_polygon_problem(cfg);
 sigma_fun = @(lam) problem.ops.sigma(lam);
@@ -59,13 +67,13 @@ sigma_fun = @(lam) problem.ops.sigma(lam);
 opts = struct();
 
 opts.scan = struct();
-opts.scan.lamvec = 10:0.05:13;
+opts.scan.lamvec = 7:0.025:11;
 opts.scan.detect_mode = 'strict_local_min';
 
 opts.refine = struct();
 opts.refine.bracket_halfwidth = 1;
-opts.refine.sigma_cut = 1e-2;
-opts.refine.minimizer = @minimizer_hybrid;
+opts.refine.sigma_cut = 5e-2;
+opts.refine.minimizer = @minimizer_trisection;
 opts.refine.minimizer_opts = struct( ...
     'tol_x', 1e-13, ...
     'tol_fun', 1e-12, ...
@@ -99,12 +107,13 @@ axis equal;
 grid on;
 legend('polygon', 'boundary samples', 'interior samples', 'Location', 'best');
 title(problem.name);
+save_plot_eps('polygon_geometry');
 
 % ---------------------------------
 % 7. scan plot with refined candidates
 % ---------------------------------
 figure;
-plot(result.scan.lamvec, result.scan.S, 'k-', 'LineWidth', 1.2); hold on;
+semilogy(result.scan.lamvec, result.scan.S, 'k-', 'LineWidth', 1.2); hold on;
 grid on;
 xlabel('\lambda');
 ylabel('\sigma(\lambda)');
@@ -125,16 +134,17 @@ if ~isempty(cand_acc)
     plot(x, y, 'ro', 'MarkerFaceColor', 'r', 'MarkerSize', 6);
 
     for i = 1:numel(cand_acc)
-        xx = cand_acc(i).refined_lambda;
+        xx =cand_acc(i).refined_lambda;
         yl = ylim;
         plot([xx xx], yl, 'r--');
     end
 end
 
 legend('scan', 'raw dips', 'accepted refined', 'Location', 'best');
+save_plot_eps('scan_refine_cluster');
 %%
 lam = 12.335964909866;
-QB = problem.ops.QB(12.335964909866);
+QB = problem.ops.QB(12.336992698243);
 [~,S,V] = svd(QB,"econ", "vector");
 [~, idx] = min(S);
 v = V(:, idx);
@@ -143,7 +153,7 @@ Q = QB*(eye(m) - v*v');
 ss = svd(Q);
 Q_op = @(lam) (problem.ops.QB(lam))*(eye(m) - v*v');
 Q_op = @(lam) problem.ops.QB(lam);
-lam_vec = 12.3:1e-4:12.4;
+lam_vec = 12.32:5e-5:12.34;
 s1 = [];
 s2 = [];
 s3 = [];
@@ -151,6 +161,7 @@ for lam = lam_vec
     ss = svd(Q_op(lam),"econ");
     s1 = [s1, ss(end)];
     s2 = [s2, ss(end-1)];
+    
     s3 = [s3, ss(end-2)];
 end
 figure;
@@ -159,376 +170,84 @@ semilogy(lam_vec, s2, 'b-', 'LineWidth', 1.5);
 semilogy(lam_vec, s3, 'g-', 'LineWidth', 1.5);
 legend('\sigma_k','\sigma_{k-1}','\sigma_{k-2}','Location', 'best');
 grid on;
+save_plot_eps('singular_value_trace_cluster');
 %%
-a = 12.3;
-b = 12.4;
-lam0 = 12.336987585210;
+lam0 = 12.337002090000;
 
-Q_op = @(lam) problem.ops.QB(lam);
+h = 1e-4;
 
-abs_tol = 1e-2;
-close_ratio = 10;
-n_init = 21;
-max_refine = 6;
-min_width = 1e-8;
+pair_opts = struct();
+pair_opts.normalize_columns = cfg.normalize_columns;
+pair_opts.qr_tau = cfg.qr_tau;
+pair_opts.pivot = true;
+pair_opts.sign_fix = true;
 
-kmax_keep = 8;              % how many smallest singular values to inspect
-local_half_width = 0.01;    % local window around lam0 for tracing
-sep_tol_lam = 1e-5;         % tolerance for saying two traced minima coincide
-dip_tol = abs_tol;          % threshold for accepting an extra sigma_min dip
+[dQB, QB_left, QB_right, pair_info] = approx_QB_derivative_from_Aop( ...
+    problem.ops.A, problem.meta.mB, lam0, h, pair_opts);
 
-sigma_min_fun = @(lam) smallest_sigma(Q_op, lam);
+fprintf('\npaired-Q example around lambda = %.12f\n', lam0);
+fprintf('  rank at lambda-h          : %d\n', pair_info.rank_left);
+fprintf('  rank at lambda+h          : %d\n', pair_info.rank_right);
+fprintf('  common selected columns   : %d\n', pair_info.n_common);
+fprintf('  gap at lambda-h           : %.3e\n', pair_info.gap_left);
+fprintf('  gap at lambda+h           : %.3e\n', pair_info.gap_right);
 
-%% ============================================================
-% Step 0. singular values at lam0
-% ============================================================
-s0 = svd(Q_op(lam0), 'econ');
-kmax = min(kmax_keep, numel(s0));
-s_small0 = flipud(s0(end-kmax+1:end));   % ascending
-
-disp('small singular values at lam0 = ');
-disp(s_small0(:).');
-
-idx_abs = find(s_small0 <= abs_tol);
-if isempty(idx_abs)
-    error('No singular values below abs_tol at lam0.');
+if pair_info.n_common > 0
+    fprintf('  ||QB(lambda+h)-QB(lambda-h)||_F / (2h) = %.3e\n', norm(dQB));
 end
+%%
+a = opts.scan.lamvec(1);
+b = opts.scan.lamvec(end);
+accepted = result.summary.accepted_mask;
+cand_all = result.candidates;
+cand_acc = cand_all(accepted);
 
-fprintf('absolute-small indices at lam0 = ');
-disp(idx_abs);
+cluster_opts = struct();
+cluster_opts.cluster_ratio = 100;
+cluster_opts.fd_step = 1e-4;
+cluster_opts.micro_max_points = 4001;
 
-%% ============================================================
-% Step 1. grouping at lam0
-% ============================================================
-groups0 = {};
-g = 1;
-groups0{g} = idx_abs(1);
-
-for t = 2:numel(idx_abs)
-    j_prev = idx_abs(t-1);
-    j_curr = idx_abs(t);
-    ratio_tc = s_small0(j_curr) / max(s_small0(j_prev), eps);
-
-    if ratio_tc <= close_ratio
-        groups0{g}(end+1) = j_curr;
-    else
-        g = g + 1;
-        groups0{g} = j_curr;
-    end
-end
-
-fprintf('groups at lam0:\n');
-for g = 1:numel(groups0)
-    fprintf('  Group %d: ', g);
-    fprintf('%d ', groups0{g});
-    fprintf('\n');
-end
-
-active_group = groups0{1};
-other_groups = groups0(2:end);
-r_keep = idx_abs(end);
-
-fprintf('active group = ');
-disp(active_group);
-
-%% ============================================================
-% Step 2. trace only the active group locally near lam0
-%         and judge separability of the known dip
-% ============================================================
-a_loc = max(a, lam0 - local_half_width);
-b_loc = min(b, lam0 + local_half_width);
-
-lam_active = unique(sort([linspace(a_loc, b_loc, n_init), lam0]));
-
-for depth = 1:max_refine
-    n = numel(lam_active);
-    S = NaN(n, r_keep);
-
-    for i = 1:n
-        s = svd(Q_op(lam_active(i)), 'econ');
-        s = flipud(s(end-r_keep+1:end));
-        S(i,:) = s(:).';
-    end
-
-    new_pts = [];
-
-    for i = 1:n-1
-        l = lam_active(i);
-        r = lam_active(i+1);
-        if (r-l) < min_width
-            continue;
-        end
-
-        m = 0.5*(l+r);
-        if any(abs(lam_active - m) < 1e-15)
-            continue;
-        end
-
-        s_mid = svd(Q_op(m), 'econ');
-        s_mid = flipud(s_mid(end-r_keep+1:end));
-
-        refine = false;
-
-        % refine if any active-group branch shows a valley
-        for j = active_group
-            if (s_mid(j) < S(i,j)) && (s_mid(j) < S(i+1,j))
-                refine = true;
-                break;
-            end
-        end
-
-        % also refine if active-group ordering looks unstable
-        if ~refine && numel(active_group) >= 2
-            left_order = S(i,active_group);
-            right_order = S(i+1,active_group);
-            mid_order = s_mid(active_group);
-
-            if any(diff(left_order).*diff(right_order) < 0) || ...
-               any(diff(left_order).*diff(mid_order) < 0)
-                refine = true;
-            end
-        end
-
-        if refine
-            new_pts(end+1) = m; %#ok<AGROW>
-        end
-    end
-
-    if isempty(new_pts)
-        break;
-    end
-
-    lam_active = unique(sort([lam_active, new_pts]));
-end
-
-n = numel(lam_active);
-S_active = NaN(n, r_keep);
-for i = 1:n
-    s = svd(Q_op(lam_active(i)), 'econ');
-    s = flipud(s(end-r_keep+1:end));
-    S_active(i,:) = s(:).';
-end
-
-figure;
-hold on;
-for j = active_group
-    plot(lam_active, S_active(:,j), 'o-', 'LineWidth', 1.4, ...
-        'DisplayName', sprintf('\\sigma_%d', j));
-end
-xline(lam0, '--k', 'HandleVisibility', 'off');
-xlabel('\lambda');
-ylabel('singular value');
-title('Active group near known dip');
-legend('Location', 'best');
-grid on;
-
-fprintf('\n=== Active group diagnostics ===\n');
-lam_min_active = zeros(numel(active_group),1);
-sig_min_active = zeros(numel(active_group),1);
-
-for p = 1:numel(active_group)
-    j = active_group(p);
-    [sig_min_active(p), idxm] = min(S_active(:,j));
-    lam_min_active(p) = lam_active(idxm);
-    fprintf('sigma_%d min at %.15f, value %.6e\n', ...
-        j, lam_min_active(p), sig_min_active(p));
-end
-
-if numel(active_group) == 1
-    fprintf('Interpretation: active group is simple.\n');
+if isempty(cand_acc)
+    fprintf('\nNo accepted refined candidates. Skip local cluster resolution.\n');
 else
-    lam_spread = max(lam_min_active) - min(lam_min_active);
-    sig_spread = max(sig_min_active) - min(sig_min_active);
+    fprintf('\n=== Local Cluster Resolution ===\n');
+    for ic = 1:numel(cand_acc)
+        cand = cand_acc(ic);
+        report = resolve_local_cluster(problem, sigma_fun, cand, [a, b], opts.refine, cfg, cluster_opts);
+        print_cluster_report(report);
 
-    fprintf('spread of traced minimizers in lambda = %.6e\n', lam_spread);
-    fprintf('spread of minimum values inside active group = %.6e\n', sig_spread);
+        if report.cluster_detected && ~isempty(report.micro_scan.lamvec)
+            figure;
+            h_scan = plot(report.micro_scan.lamvec, report.micro_scan.S, 'k-', 'LineWidth', 1.2); hold on;
+            grid on;
+            h_line = xline(report.lam_star, 'b--', 'LineWidth', 1.0);
+            h_base = plot(report.lam_star, report.sigma_min, 'bo', 'MarkerFaceColor', 'b');
 
-    if lam_spread <= sep_tol_lam
-        fprintf('Interpretation: active group behaves like one unresolved local cluster.\n');
-    else
-        fprintf('Interpretation: active group appears separable.\n');
-    end
-end
-
-%% ============================================================
-% Step 3. use other groups only to mark suspicious intervals
-%         where sigma_min may have another dip
-% ============================================================
-lam_scan = linspace(a, b, n_init);
-S_scan = NaN(numel(lam_scan), r_keep);
-
-for i = 1:numel(lam_scan)
-    s = svd(Q_op(lam_scan(i)), 'econ');
-    s = flipud(s(end-r_keep+1:end));
-    S_scan(i,:) = s(:).';
-end
-
-for depth = 1:max_refine
-    new_pts = [];
-
-    for i = 1:numel(lam_scan)-1
-        l = lam_scan(i);
-        r = lam_scan(i+1);
-        if (r-l) < min_width
-            continue;
-        end
-
-        m = 0.5*(l+r);
-        if any(abs(lam_scan - m) < 1e-15)
-            continue;
-        end
-
-        s_mid = svd(Q_op(m), 'econ');
-        s_mid = flipud(s_mid(end-r_keep+1:end));
-
-        refine = false;
-
-        % ordinary sigma_min valley detection
-        if (s_mid(1) < S_scan(i,1)) && (s_mid(1) < S_scan(i+1,1))
-            refine = true;
-        end
-
-        % use other groups only as detectors of suspicious regions
-        if ~refine
-            for gg = 1:numel(other_groups)
-                G = other_groups{gg};
-                for j = G
-                    if (s_mid(j) < S_scan(i,j)) && (s_mid(j) < S_scan(i+1,j))
-                        refine = true;
-                        break;
-                    end
-                end
-                if refine
-                    break;
-                end
+            extra_mask = report.micro_summary.extra_mask;
+            if any(extra_mask)
+                extra_lam = [report.micro_summary.refined_candidates(extra_mask).refined_lambda];
+                extra_sig = [report.micro_summary.refined_candidates(extra_mask).refined_sigma];
+                h_extra = plot(extra_lam, extra_sig, 'ro', 'MarkerFaceColor', 'r');
             end
-        end
-
-        if refine
-            new_pts(end+1) = m; %#ok<AGROW>
-        end
-    end
-
-    if isempty(new_pts)
-        break;
-    end
-
-    lam_scan = unique(sort([lam_scan, new_pts]));
-    S_scan = NaN(numel(lam_scan), r_keep);
-
-    for i = 1:numel(lam_scan)
-        s = svd(Q_op(lam_scan(i)), 'econ');
-        s = flipud(s(end-r_keep+1:end));
-        S_scan(i,:) = s(:).';
-    end
-end
-
-sig1 = S_scan(:,1);
-
-figure;
-hold on;
-plot(lam_scan, sig1, 'o-', 'LineWidth', 1.5, 'DisplayName', '\sigma_{min}');
-xline(lam0, '--k', 'known dip', 'HandleVisibility', 'off');
-xlabel('\lambda');
-ylabel('\sigma_{min}(Q_B(\lambda))');
-title('Refined scan for possible additional dips of \sigma_{min}');
-legend('Location', 'best');
-grid on;
-
-%% ============================================================
-% Step 4. define suspicious intervals and solve sigma_min there
-%         IMPORTANT: final lambda must minimize sigma_min
-% ============================================================
-idx_susp = find(sig1(2:end-1) <= sig1(1:end-2) & sig1(2:end-1) <= sig1(3:end)) + 1;
-
-cand_intervals = [];
-for t = 1:numel(idx_susp)
-    k = idx_susp(t);
-    l = lam_scan(max(k-1,1));
-    r = lam_scan(min(k+1,numel(lam_scan)));
-
-    % ignore the known dip near lam0
-    if (l <= lam0) && (lam0 <= r)
-        continue;
-    end
-
-    cand_intervals(end+1,:) = [l, r]; %#ok<AGROW>
-end
-
-fprintf('\n=== suspicious intervals for extra sigma_min dips ===\n');
-disp(cand_intervals);
-
-extra_dips = [];
-
-for t = 1:size(cand_intervals,1)
-    l = cand_intervals(t,1);
-    r = cand_intervals(t,2);
-
-    [lam_star, sig_star] = fminbnd(sigma_min_fun, l, r);
-
-    fprintf('interval [% .15f, % .15f] -> lam_star = %.15f, sigma_min = %.6e\n', ...
-        l, r, lam_star, sig_star);
-
-    if sig_star <= dip_tol
-        extra_dips(end+1,:) = [lam_star, sig_star, l, r]; %#ok<AGROW>
-    end
-end
-
-fprintf('\n=== accepted extra dips from sigma_min minimization ===\n');
-disp(extra_dips);
-
-%% ============================================================
-% Step 5. inspect each accepted extra dip locally
-%         if small sigmas cluster there, report it
-% ============================================================
-for kk = 1:size(extra_dips,1)
-    lamk = extra_dips(kk,1);
-
-    sk = svd(Q_op(lamk), 'econ');
-    kmax_k = min(kmax_keep, numel(sk));
-    s_smallk = flipud(sk(end-kmax_k+1:end));
-
-    idx_abs_k = find(s_smallk <= abs_tol);
-
-    fprintf('\n=== local inspection at extra dip %d ===\n', kk);
-    fprintf('lam = %.15f\n', lamk);
-    fprintf('small singular values = ');
-    disp(s_smallk(:).');
-
-    if isempty(idx_abs_k)
-        fprintf('No absolute-small singular values found under abs_tol.\n');
-        continue;
-    end
-
-    groups_k = {};
-    g = 1;
-    groups_k{g} = idx_abs_k(1);
-
-    for t = 2:numel(idx_abs_k)
-        jp = idx_abs_k(t-1);
-        jc = idx_abs_k(t);
-        ratio_tc = s_smallk(jc) / max(s_smallk(jp), eps);
-
-        if ratio_tc <= close_ratio
-            groups_k{g}(end+1) = jc;
-        else
-            g = g + 1;
-            groups_k{g} = jc;
+            
+            set(gca, 'YScale', 'log')
+            xlabel('\lambda');
+            ylabel('\sigma_{min}(Q_B(\lambda))');
+            title(sprintf('Local micro-scan near \\lambda_*'));
+            if any(extra_mask)
+                legend([h_scan, h_line, h_base, h_extra], ...
+                    {'micro-scan', '\lambda_*', 'base dip', 'extra dips'}, ...
+                    'Location', 'best');
+            else
+                legend([h_scan, h_line, h_base], ...
+                    {'micro-scan', '\lambda_*', 'base dip'}, ...
+                    'Location', 'best');
+            end
+            save_plot_eps(sprintf('local_micro_scan_%02d', ic));
         end
     end
-
-    fprintf('groups at this extra dip:\n');
-    for g = 1:numel(groups_k)
-        fprintf('  Group %d: ', g);
-        fprintf('%d ', groups_k{g});
-        fprintf('\n');
-    end
-
-    % optional: if first group has size > 1, do another local trace there
-    if numel(groups_k{1}) > 1
-        fprintf('This extra dip also has a clustered active group; local tracing is recommended.\n');
-    end
 end
+
 
 %% ============================================================
 % local function
@@ -536,4 +255,198 @@ end
 function s1 = smallest_sigma(Q_op, lam)
     s = svd(Q_op(lam), 'econ');
     s1 = s(end);
+end
+
+
+function report = resolve_local_cluster(problem, sigma_fun, cand, global_interval, refine_opts, cfg, cluster_opts)
+    lam_star = cand.refined_lambda;
+    L_macro = max(abs(cand.bracket - lam_star));
+
+    [QB_star, factor_info] = build_reference_QB(problem, lam_star, cfg);
+    [U, S] = svd(QB_star, 'econ');
+    svals = diag(S);
+    sigma_min = svals(end);
+
+    k = find(svals < cluster_opts.cluster_ratio * sigma_min, 1, 'first');
+    if isempty(k)
+        k = numel(svals);
+    end
+
+    report = struct();
+    report.lam_star = lam_star;
+    report.sigma_min = sigma_min;
+    report.cluster_index = k;
+    report.cluster_detected = (k < numel(svals));
+    report.n_small_singular = numel(svals) - k + 1;
+    report.svals = svals;
+    report.L_macro = L_macro;
+    report.L_fine = [];
+    report.fd_step = cluster_opts.fd_step;
+    report.reference_rank = factor_info.rank;
+    report.reference_cols = factor_info.selected_cols;
+    report.micro_scan = struct('lamvec', [], 'S', [], 'candidate_idx', []);
+    report.micro_summary = struct('refined_candidates', [], 'extra_mask', []);
+    report.message = '';
+
+    if ~report.cluster_detected
+        report.message = 'No cluster detected at the refined lambda.';
+        return;
+    end
+
+    QB_plus = build_QB_with_selected_cols(problem.ops.A, problem.meta.mB, lam_star + cluster_opts.fd_step, factor_info.selected_cols, cfg);
+    delta_Q = QB_plus - QB_star;
+    response = norm(delta_Q, 2);
+
+    if response <= eps(class(response))
+        report.message = 'Cluster detected, but the finite-difference response is numerically zero.';
+        return;
+    end
+
+    L_fine = 0.5 * sigma_min * cluster_opts.fd_step / response;
+    if ~isfinite(L_fine) || L_fine <= 0
+        report.message = 'Cluster detected, but the adaptive local step is not finite.';
+        return;
+    end
+
+    report.L_fine = L_fine;
+
+    lam_left = max(global_interval(1), lam_star - L_macro);
+    lam_right = min(global_interval(2), lam_star + L_macro);
+    n_micro = max(3, ceil((lam_right - lam_left) / L_fine) + 1);
+
+    if n_micro > cluster_opts.micro_max_points
+        n_micro = cluster_opts.micro_max_points;
+        report.message = sprintf('Micro-grid capped at %d points for efficiency.', n_micro);
+    end
+
+    lamvec = linspace(lam_left, lam_right, n_micro);
+    S_micro = zeros(size(lamvec));
+    for i = 1:numel(lamvec)
+        S_micro(i) = sigma_fun(lamvec(i));
+    end
+
+    J = 2:numel(lamvec)-1;
+    J = J(S_micro(J) < S_micro(J-1) & S_micro(J) < S_micro(J+1));
+
+    micro_scan = struct();
+    micro_scan.lamvec = lamvec;
+    micro_scan.S = S_micro;
+    micro_scan.candidate_idx = J;
+    micro_scan.meta = struct();
+    micro_scan.meta.detect_mode = 'strict_local_min';
+    micro_scan.meta.n_scan_points = numel(lamvec);
+    micro_scan.meta.n_candidates = numel(J);
+
+    refined_candidates = refine_candidates(sigma_fun, micro_scan, refine_opts);
+    extra_mask = local_extra_dip_mask(refined_candidates, lam_star, L_fine);
+
+    report.micro_scan = micro_scan;
+    report.micro_summary.refined_candidates = refined_candidates;
+    report.micro_summary.extra_mask = extra_mask;
+
+    if ~any(extra_mask)
+        if isempty(report.message)
+            report.message = 'Cluster detected, but no extra resolved dip was found in the micro-scan.';
+        end
+    elseif isempty(report.message)
+        report.message = 'Cluster detected and at least one extra local dip was found.';
+    end
+end
+
+
+function [QB, info] = build_reference_QB(problem, lam, cfg)
+    A = problem.ops.A(lam);
+    qr_opts = struct();
+    qr_opts.normalize_columns = false;
+    qr_opts.pivot = get_cfg_flag(cfg, 'qr_pivot');
+    qr_opts.sign_fix = true;
+    qr_opts.qr_tau = get_cfg_value(cfg, 'qr_tau', []);
+    [QB, info] = build_QB_from_A(A, problem.meta.mB, qr_opts);
+end
+
+
+function QB = build_QB_with_selected_cols(A_op, mB, lam, selected_cols, cfg)
+    A = A_op(lam);
+    A = A(:, selected_cols);
+    [Q, R] = qr(A, 0);
+
+    d = sign(diag(R));
+    d(d == 0) = 1;
+    Q = Q * diag(d);
+
+    QB = Q(1:mB, :);
+end
+
+
+function extra_mask = local_extra_dip_mask(candidates, lam_star, lam_tol)
+    if isempty(candidates)
+        extra_mask = false(0, 1);
+        return;
+    end
+
+    extra_mask = false(numel(candidates), 1);
+    for i = 1:numel(candidates)
+        if ~candidates(i).accepted
+            continue;
+        end
+        if abs(candidates(i).refined_lambda - lam_star) > lam_tol
+            extra_mask(i) = true;
+        end
+    end
+end
+
+
+function print_cluster_report(report)
+    fprintf('\n--- Cluster check at lambda* = %.15f ---\n', report.lam_star);
+    fprintf('sigma_min              : %.6e\n', report.sigma_min);
+    fprintf('cluster index k        : %d of %d\n', report.cluster_index, numel(report.svals));
+    fprintf('small singular values  : %d\n', report.n_small_singular);
+    fprintf('reference rank         : %d\n', report.reference_rank);
+
+    if ~report.cluster_detected
+        fprintf('status                 : no cluster\n');
+        fprintf('message                : %s\n', report.message);
+        return;
+    end
+
+    fprintf('status                 : cluster detected\n');
+    fprintf('L_macro                : %.6e\n', report.L_macro);
+
+    if isempty(report.L_fine)
+        fprintf('message                : %s\n', report.message);
+        return;
+    end
+
+    fprintf('L_fine                 : %.6e\n', report.L_fine);
+    fprintf('micro points           : %d\n', numel(report.micro_scan.lamvec));
+
+    n_extra = nnz(report.micro_summary.extra_mask);
+    fprintf('extra dips found       : %d\n', n_extra);
+    if n_extra == 0
+        fprintf('extra dip status       : none resolved\n');
+    else
+        extra_cands = report.micro_summary.refined_candidates(report.micro_summary.extra_mask);
+        for i = 1:numel(extra_cands)
+            fprintf('  extra dip %d: lambda = %.15f, sigma = %.6e\n', ...
+                i, extra_cands(i).refined_lambda, extra_cands(i).refined_sigma);
+        end
+    end
+
+    if ~isempty(report.message)
+        fprintf('message                : %s\n', report.message);
+    end
+end
+
+
+function value = get_cfg_flag(cfg, name)
+    value = isfield(cfg, name) && ~isempty(cfg.(name)) && cfg.(name);
+end
+
+
+function value = get_cfg_value(cfg, name, default_value)
+    if isfield(cfg, name) && ~isempty(cfg.(name))
+        value = cfg.(name);
+    else
+        value = default_value;
+    end
 end

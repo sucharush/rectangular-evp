@@ -10,7 +10,7 @@ function problem = build_polygon_problem(cfg)
     problem.data.geom = geom;
 
     problem.ops = struct();
-    problem.ops.A = @(lam) build_A_polygon(geom.P, geom.corner_list, cfg.Mcorner, lam);
+    problem.ops.A = @(lam) build_A_polygon(geom, lam);
     problem.ops.QB = @(lam) build_QB_polygon(geom, cfg, lam);
     problem.ops.sigma = @(lam) sigma_polygon(geom, cfg, lam);
     % general solver-facing matrix-valued operator
