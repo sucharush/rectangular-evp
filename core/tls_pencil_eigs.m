@@ -33,7 +33,9 @@ function [vec_tls_all, lam_tls_all] = tls_pencil_eigs(A, B)
     V11 = Vc(1:r,     1:r);
     V21 = Vc(r+1:2*r, 1:r);
     V22 = Vc(r+1:2*r,r+1:2*r);
-    cond(V22)
+    cond(V11)
+    Sigma(r)
+    Sigma(r+1)
 
     [vec_tls_all, lam_tls_all] = eig(V21', V11', 'vector');
     % lam_tls_all = diag(D);

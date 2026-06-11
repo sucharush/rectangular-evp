@@ -54,13 +54,34 @@ cfg.nI = 100;
 
 
 cfg = case_polygon_drum('left');
-cfg.qr_tau = 0;      % no truncation, keep QB size fixed
-cfg.nb_per_edge = 10;
-cfg.Mcorner = 10;
+cfg.qr_tau = 1e-13;      % no truncation, keep QB size fixed
+cfg.nb_per_edge = 40;
+cfg.Mcorner = 40;
 cfg.nI = 50;
 problem = build_polygon_problem(cfg);
 sigma_fun = @(lam) problem.ops.sigma(lam);
 
+% ---------------------------------
+% A's numerical rank
+% ---------------------------------
+lam_list = 7:0.025:11;
+A_op = problem.ops.A;
+ss1 = [];
+for lam=lam_list
+    sig = svd(A_op(lam), "econ");
+
+    ss1 = [ss1, sig(end)];
+end
+figure;
+semilogy(lam_list, ss1(:), 'b-', 'LineWidth', 1.5);hold on;
+% semilogy(lam_list, ss2(:)-ss1(:), 'b-', 'LineWidth', 1.5);
+xlabel('\lambda');
+ylabel('\sigma_{min}(A(\lambda))');
+% title('smallest singular values of A(\lambda)');
+% legend('smallest', 'Interpreter', 'tex');
+grid on;
+save_plot_eps('sigA_fullrank');
+%%
 % ---------------------------------
 % 3. solver options
 % ---------------------------------
@@ -116,12 +137,12 @@ figure;
 semilogy(result.scan.lamvec, result.scan.S, 'k-', 'LineWidth', 1.2); hold on;
 grid on;
 xlabel('\lambda');
-ylabel('\sigma(\lambda)');
-title('scan-refine result');
+% ylabel('\sigma(\lambda)');
+% title('scan-refine result');
 
-% raw detected dips
-J = result.scan.candidate_idx;
-plot(result.scan.lamvec(J), result.scan.S(J), 'ko', 'MarkerFaceColor', 'y');
+% % raw detected dips
+% J = result.scan.candidate_idx;
+% plot(result.scan.lamvec(J), result.scan.S(J), 'ko', 'MarkerFaceColor', 'y');
 
 % accepted refined candidates
 accepted = result.summary.accepted_mask;
@@ -140,8 +161,8 @@ if ~isempty(cand_acc)
     end
 end
 
-legend('scan', 'raw dips', 'accepted refined', 'Location', 'best');
-save_plot_eps('scan_refine_cluster');
+legend('scan', 'accepted refined', 'FontSize', 13, 'Location','best');
+save_plot_eps('scan_refine_fullrank');
 %%
 lam = 12.335964909866;
 QB = problem.ops.QB(12.336992698243);

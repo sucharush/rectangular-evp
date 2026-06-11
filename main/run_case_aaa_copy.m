@@ -1,5 +1,8 @@
 clear; close all; clc;
-rng(0);
+seed = 0;
+rng(seed);
+k_runs = 1;
+last_seed = seed;
 
 this_file = mfilename('fullpath');
 this_dir = fileparts(this_file);
@@ -11,6 +14,7 @@ addpath(fullfile(project_root, 'problem_builders'));
 addpath(fullfile(project_root, 'solvers'));
 addpath(fullfile(project_root, 'rational'));
 addpath(fullfile(project_root, 'core'));
+addpath(fullfile(project_root, 'plots'));
 
 % ============================================================
 % Example 1: polygon backend
@@ -19,7 +23,7 @@ cfg = case_polygon_drum('left');
 cfg.qr_tau = 0;      % no truncation, keep QB size fixed
 cfg.nb_per_edge = 10;
 cfg.Mcorner = 10;
-cfg.nI = 10;
+cfg.nI = 50;
 
 problem = build_polygon_problem(cfg);
 
@@ -66,8 +70,8 @@ ell_list = [4];
 results_direct = cell(numel(ell_list), 1);
 results_proc   = cell(numel(ell_list), 1);
 
-k_runs = 1; %by default
-seed_list = [1:(k_runs-1), 0];   % last run is seed = 0
+% k_runs = 1; %by default
+seed_list = [1:(k_runs-1), last_seed];   % last run is seed = 0
 
 avg_direct_degree = zeros(numel(ell_list), 1);
 avg_proc_degree   = zeros(numel(ell_list), 1);
@@ -289,15 +293,15 @@ saveas(gcf, 'saved_plots/continue.eps', 'epsc');
 % ============================================================
 % Plot 3: sigma_min on linearized pencils for all 4 outputs
 % ============================================================
-lam_true = [ ...
-    7.248077955423, ...
-    9.209295403292, ...
-    10.596986220784];
-% 7.248077955423  9.209295403292 10.596986220784
 % lam_true = [ ...
-%     7.247948913733, ...
-%     9.208978724772, ...
-%     10.594985597455];
+%     7.248077955423, ...
+%     9.209295403292, ...
+%     10.596986220784];
+% 7.248077955423  9.209295403292 10.596986220784
+lam_true = [ ...
+    7.247948913733, ...
+    9.208978724772, ...
+    10.594985597455];
 delta = 0.03;
 
 lam_coarse = linspace(a, b, 41);
@@ -364,10 +368,10 @@ xlabel('\lambda');
 ylabel('\sigma_{min}(M-\lambda B)');
 xlim([a, b]);
 % legend('Location', 'best');
-legend();
-title('Smallest singular value of the linearized pencils, l=4');
+legend('FontSize', 13);
+% title('Smallest singular value of the linearized pencils, l=4');
 grid on;
-saveas(gcf, 'saved_plots/aaa_linearized.eps', 'epsc');
+saveas(gcf, 'saved_plots/aaa_linearized_bary.eps', 'epsc');
 
 %%
 % ============================================================
@@ -375,7 +379,7 @@ saveas(gcf, 'saved_plots/aaa_linearized.eps', 'epsc');
 % ============================================================
 tls_block_top_k = 20;
 
-for k = 2:2
+for k = 1:2
     out = outs{k};
     report_tls_block_postfilter(out, pencil_data{k}, lam_true, tls_block_top_k, names{k});
 end
@@ -468,17 +472,12 @@ function [A, B] = build_star_barycentric_pencil(D, z_nodes, w_weights)
     end
     
     % --- CRITICAL FIX 2: Deliberate TLS Weighting ---
-    % Instead of blind block balancing, we explicitly measure the norms.
-    % Assuming D{j} are properly scaled, norm_top should already be reasonable now.
     norm_top = norm(A(1:p, :), 'inf'); 
     norm_bot = norm(A(p+1:end, :), 'inf') + norm(B(p+1:end, :), 'inf');
     
-    % Only apply a gentle gamma if the scale disparity is still
-    % disastrously large...
     ratio = norm_bot / max(norm_top, eps);
     if ratio > 1e2 || ratio < 1e-2
-        % Only act if there is a severe scale mismatch
-        gamma = sqrt(ratio); % A milder preconditioner to prevent dominating the SVD
+        gamma = sqrt(ratio);
         A(1:p, :) = gamma * A(1:p, :);
         B(1:p, :) = gamma * B(1:p, :); 
     end
@@ -681,7 +680,6 @@ function report_tls_block_postfilter(out, pencil_data, lam_true, top_k, label)
 
     nkeep = numel(idx_keep);
     reduced_score = nan(nkeep, 1);
-    first_block_score = nan(nkeep, 1);
     matched_true = nan(nkeep, 1);
     err_to_true = nan(nkeep, 1);
     subspace_dim = nan(nkeep, 1);
@@ -710,12 +708,6 @@ function report_tls_block_postfilter(out, pencil_data, lam_true, top_k, label)
         subspace_dim(t) = size(U, 2);
         n_valid_blocks(t) = n_valid;
 
-        y_first = local_extract_first_star_block(x, q);
-        if ~isempty(y_first)
-            y_first_norm = norm(y_first);
-            first_block_score(t) = norm(Rb * y_first) / max(y_first_norm, 1e-14);
-        end
-
         [err_to_true(t), idx_true] = min(abs(lam - lam_true(:)));
         matched_true(t) = lam_true(idx_true);
     end
@@ -734,15 +726,15 @@ function report_tls_block_postfilter(out, pencil_data, lam_true, top_k, label)
     if isempty(idx_top)
         fprintf('  no prefiltered TLS pairs produced a valid reduced subspace score.\n');
     else
-        fprintf('%4s  %16s  %11s  %12s  %12s  %12s  %6s  %6s  %16s  %12s\n', ...
-            'rank', 'real(lambda)', 'imag(lambda)', 'red_score', 'first_score', ...
+        fprintf('%4s  %16s  %11s  %12s  %12s  %6s  %6s  %16s  %12s\n', ...
+            'rank', 'real(lambda)', 'imag(lambda)', 'red_score', ...
             'pencil_res', 'dimU', 'nblk', 'matched_true', 'err_true');
 
         for t = 1:numel(idx_top)
             j = idx_top(t);
-            fprintf('%4d  %16.12f  %11.3e  %12.3e  %12.3e  %12.3e  %6d  %6d  %16.12f  %12.3e\n', ...
+            fprintf('%4d  %16.12f  %11.3e  %12.3e  %12.3e  %6d  %6d  %16.12f  %12.3e\n', ...
                 t, real(lam_keep(j)), imag(lam_keep(j)), reduced_score(j), ...
-                first_block_score(j), rel_pencil_res(j), round(subspace_dim(j)), ...
+                rel_pencil_res(j), round(subspace_dim(j)), ...
                 round(n_valid_blocks(j)), matched_true(j), err_to_true(j));
         end
     end
@@ -761,7 +753,6 @@ function [U, n_valid] = local_build_star_barycentric_tls_subspace(x, lam, z_node
         keep(1) = true;
     end
 
-    % Each y_j block provides an additional x candidate via x = (lambda - z_j) y_j.
     for j = 1:nblocks
         scale = lam - z_nodes(j);
         if ~isfinite(scale) || abs(scale) < 1e-14
@@ -799,18 +790,5 @@ function [U, n_valid] = local_build_star_barycentric_tls_subspace(x, lam, z_node
 
     if isempty(U)
         n_valid = 0;
-    end
-end
-
-function y = local_extract_first_star_block(x, q)
-    if numel(x) < q
-        y = [];
-        return;
-    end
-
-    y = x(1:q);
-    y_norm = norm(y);
-    if ~isfinite(y_norm) || y_norm == 0
-        y = [];
     end
 end

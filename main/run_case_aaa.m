@@ -1,6 +1,8 @@
 clear; close all; clc;
-rng(0);
-
+seed = 0;
+rng(seed);
+k_runs = 1;
+last_seed = seed;
 this_file = mfilename('fullpath');
 this_dir = fileparts(this_file);
 project_root = fileparts(this_dir);
@@ -11,6 +13,7 @@ addpath(fullfile(project_root, 'problem_builders'));
 addpath(fullfile(project_root, 'solvers'));
 addpath(fullfile(project_root, 'rational'));
 addpath(fullfile(project_root, 'core'));
+addpath(fullfile(project_root, 'plots'));
 
 % ============================================================
 % Example 1: polygon backend
@@ -62,12 +65,12 @@ opts.verify.compute_bary_error = true;
 % Keep the final stored result at seed = 0
 % ============================================================
 ell_list = [2, 4];
-ell_list = [4];
+ell_list = [2, 4];
 results_direct = cell(numel(ell_list), 1);
 results_proc   = cell(numel(ell_list), 1);
 
-k_runs = 1; %by default
-seed_list = [1:(k_runs-1), 0];   % last run is seed = 0
+% k_runs = 1; %by default
+seed_list = [1:(k_runs-1), last_seed];   % last run is seed = 0
 
 avg_direct_degree = zeros(numel(ell_list), 1);
 avg_proc_degree   = zeros(numel(ell_list), 1);
@@ -183,7 +186,7 @@ for ii = 1:numel(ell_list)
 
     plot(ax, Z_direct, results_direct{ii}.verification.relerr_bary, ...
         styles.direct, 'LineWidth', 1.5, ...
-        'DisplayName', sprintf('raw, l=%d', ell));
+        'DisplayName', sprintf('normalized, l=%d', ell));
 
     plot(ax, Z_proc, results_proc{ii}.verification.relerr_bary, ...
         styles.proc, 'LineWidth', 1.5, ...
@@ -191,8 +194,8 @@ for ii = 1:numel(ell_list)
 
     xlim([a, b]);
     grid on;
-    ylabel('rel. Fro error');
-    legend();
+    % ylabel('rel. Fro error');
+    legend(ax, 'FontSize', 13);
     % legend('Location', 'best');
 
     if ell == 2
@@ -205,12 +208,15 @@ for ii = 1:numel(ell_list)
         xlabel('z');
     end
 end
-if ~exist('saved_plots', 'dir')
-    mkdir('saved_plots');
-end
+
+save_plot_eps('error_bary');
+% if ~exist('saved_plots', 'dir')
+%     mkdir('saved_plots');
+% end
 % title(t, 'Barycentric approximation error');
 % export_fig("saved_plots/error_bary.eps")
 saveas(gcf, 'saved_plots/error_bary.eps', 'epsc');
+% save_plot_eps('error_bary');
 %%
 % ============================================================
 % Plot 2: consecutive change on [a,b]
@@ -271,19 +277,21 @@ figure;
 semilogy(lam_grid(2:end), diff_raw,  '-',  'LineWidth', 1.2); hold on;
 semilogy(lam_grid(2:end), diff_proc, '-.', 'LineWidth', 1.2); 
 semilogy(lam_grid(2:end), diff_proj, '--', 'LineWidth', 1.2);
-ylim([1e-3, 3e-2]);
+% ylim([1e-3, 3e-2]);
 set(gca, 'YScale', 'log');
 ax = gca;
+% ax.FontSize = 13;
 disp(ax.YScale)
 grid on;
 xlabel('\lambda');
 % ylabel('||F_k - F_{k-1}||_F');
 % legend('Q_B(\lambda)', 'Q_B(\lambda) + Procrustes', 'Q_B(\lambda)Q_B(\lambda)^*', ...
 %     'Location', 'best');
-legend('raw', 'Procrustes', 'projector');
-title('Consecutive change');
+legend('normalized', 'Procrustes', 'projector', 'FontSize', 13);
+% title('Consecutive change');
 % export_fig("saved_plots/continue.eps")
 saveas(gcf, 'saved_plots/continue.eps', 'epsc');
+% save_plot_eps('error_bary');
 
 %%
 % ============================================================
@@ -363,10 +371,10 @@ xlabel('\lambda');
 ylabel('\sigma_{min}(M-\lambda B)');
 xlim([a, b]);
 % legend('Location', 'best');
-legend();
-title('Smallest singular value of the linearized pencils, l=4');
+legend('FontSize', 13);
+% title('Smallest singular value of the linearized pencils, l=4');
 grid on;
-saveas(gcf, 'saved_plots/aaa_linearized.eps', 'epsc');
+saveas(gcf, 'saved_plots/aaa_linearized_newton.eps', 'epsc');
 
 %%
 % ============================================================
@@ -374,7 +382,7 @@ saveas(gcf, 'saved_plots/aaa_linearized.eps', 'epsc');
 % ============================================================
 tls_block_top_k = 20;
 
-for k = 2:2
+for k = 1:2
     out = outs{k};
     report_tls_block_postfilter(out, pencil_data{k}, lam_true, tls_block_top_k, names{k});
 end
