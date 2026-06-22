@@ -12,21 +12,55 @@ function [lam_star, sig_star, info] = minimizer_trisection(a, b, objective, opts
     message = '';
 
     try
+        % for k = 1:opts.max_iter
+        %     if b - a <= opts.tol_x
+        %         break;
+        %     end
+        % 
+        %     x1 = a + (b - a) / 3;
+        %     x2 = b - (b - a) / 3;
+        % 
+        %     f1 = objective.eval(x1);
+        %     f2 = objective.eval(x2);
+        % 
+        %     if f1 <= f2
+        %         b = x2;
+        %     else
+        %         a = x1;
+        %     end
+        % end
+        % 
+        % lam_star = 0.5 * (a + b);
+        % sig_star = objective.eval(lam_star);
+
+        r = (sqrt(5) - 1) / 2; 
+
+
+        x1 = b - r * (b - a);
+        x2 = a + r * (b - a);
+        f1 = objective.eval(x1);
+        f2 = objective.eval(x2);
+
         for k = 1:opts.max_iter
             if b - a <= opts.tol_x
                 break;
             end
 
-            x1 = a + (b - a) / 3;
-            x2 = b - (b - a) / 3;
-
-            f1 = objective.eval(x1);
-            f2 = objective.eval(x2);
-
             if f1 <= f2
                 b = x2;
+                x2 = x1;
+                f2 = f1;
+
+                x1 = b - r * (b - a);
+                f1 = objective.eval(x1);
             else
                 a = x1;
+
+                x1 = x2;
+                f1 = f2;
+
+                x2 = a + r * (b - a);
+                f2 = objective.eval(x2);
             end
         end
 

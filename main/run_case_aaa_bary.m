@@ -51,7 +51,7 @@ opts.interval = [a, b];
 
 opts.aaa = struct();
 opts.aaa.nCand = 1000;
-opts.aaa.aaa_tol = 1e-11;
+opts.aaa.aaa_tol = 1e-8;
 opts.aaa.mmax = 80;
 opts.aaa.seed = 0;
 opts.aaa.max_norm = true;
@@ -66,11 +66,11 @@ opts.verify.compute_bary_error = true;
 % Keep the final stored result at seed = 0
 % ============================================================
 ell_list = [2, 4];
-ell_list = [4];
+% ell_list = [4];
 results_direct = cell(numel(ell_list), 1);
 results_proc   = cell(numel(ell_list), 1);
 
-% k_runs = 1; %by default
+k_runs = 5; %by default
 seed_list = [1:(k_runs-1), last_seed];   % last run is seed = 0
 
 avg_direct_degree = zeros(numel(ell_list), 1);

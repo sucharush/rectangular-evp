@@ -32,7 +32,7 @@ function candidates = refine_candidates(sigma_fun, scan, opts)
     S = scan.S;
     J = scan.candidate_idx;
 
-    candidates = repmat(empty_candidate_template(), 0, 1);
+    candidates = repmat(empty_candidate_template(), numel(J), 1);
 
     for t = 1:numel(J)
         j = J(t);
@@ -63,14 +63,6 @@ function candidates = refine_candidates(sigma_fun, scan, opts)
         cand.logs.message = '';
 
         cand.diagnostics = struct();
-        cand.diagnostics.local_grid = [];
-        cand.diagnostics.local_sigma1 = [];
-        cand.diagnostics.local_sigma2 = [];
-        cand.diagnostics.gap_ratio = [];
-        cand.diagnostics.cluster_flag = [];
-        cand.diagnostics.proposed_subintervals = [];
-        cand.diagnostics.rank_trace = [];
-        cand.diagnostics.comment = '';
 
         % -------- optional pre-filter --------
         if ~isempty(opts.pre_refine_filter)
@@ -78,7 +70,7 @@ function candidates = refine_candidates(sigma_fun, scan, opts)
             if ~keep
                 cand.status = 'rejected_prefilter';
                 cand.logs.message = 'Rejected by pre_refine_filter.';
-                candidates(end+1,1) = cand; %#ok<AGROW>
+                candidates(t) = cand;
                 continue;
             end
         end
@@ -127,7 +119,7 @@ function candidates = refine_candidates(sigma_fun, scan, opts)
             end
         end
 
-        candidates(end+1,1) = cand; %#ok<AGROW>
+        candidates(t) = cand;
     end
 end
 

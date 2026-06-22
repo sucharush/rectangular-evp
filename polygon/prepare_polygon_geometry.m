@@ -13,23 +13,22 @@ function geom = prepare_polygon_geometry(V, cfg)
     P = [B; I];
 
     corner_list = detect_singular_corners(V);
-    corner_geom = prepare_corner_geometry(P, corner_list);
+    corner_geom = prepare_corner_geometry(P, corner_list, cfg.Mcorner);
 
     geom = struct();
     geom.V = V;
     geom.B = B;
     geom.I = I;
-    geom.P = P;
     geom.mB = size(B,1);
     geom.corner_list = corner_list;
     geom.corner_geom = corner_geom;
-    geom.Mcorner = cfg.Mcorner;
 end
 
 
-function corner_geom = prepare_corner_geometry(P, corner_list)
+function corner_geom = prepare_corner_geometry(P, corner_list, Mcorner)
     npts = size(P, 1);
     corner_geom = cell(numel(corner_list), 1);
+    m = 1:Mcorner;
 
     for j = 1:numel(corner_list)
         sj = corner_list{j};
@@ -46,9 +45,12 @@ function corner_geom = prepare_corner_geometry(P, corner_list)
         [~, idx] = min(dist, [], 2);
         phi = cands(sub2ind(size(cands), (1:npts)', idx));
 
+        nu_matrix = ones(npts, 1) * (sj.alpha * m);
+        sin_term = sin(nu_matrix .* (phi * ones(1, Mcorner)));
+
         corner_geom{j} = struct( ...
             'rho', rho, ...
-            'phi', phi, ...
-            'alpha', sj.alpha);
+            'nu_matrix', nu_matrix, ...
+            'sin_term', sin_term);
     end
 end

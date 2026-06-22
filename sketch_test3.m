@@ -47,6 +47,7 @@ subspace(Ufull, v_true)
 
 
 ell_labels = {'l=r', 'l=2r', 'l=4r', 'l=n/2', 'l=n-r', 'l=n-1', 'l=n'};
+% ell_labels = {'l=r', 'l=n/2', 'l=n-4r','l=n-2r','l=n-r', 'l=n-1', 'l=n'};
 n_cases = numel(iiMax_list);
 n_specs = numel(ell_labels);
 
@@ -66,6 +67,7 @@ for kk = 1:n_cases
     r = size(Q, 2);
 
     ell_values = [r, 2*r, 4*r, floor(n/2), n-r, n-1, n];
+    % ell_values = [r,floor(n/2), n-(4*r), n-(2*r), n-r, n-1, n];
     valid = ell_values >= r & ell_values <= n;
 
     dimQ(kk) = r;
@@ -120,15 +122,11 @@ M0 = [Q, A*Q];
 Vtail0 = V0(:, r+1:2*r);
 AQ = A * Q;
 
-V110 = V0(1:r, 1:r);
-V210 = V0(r+1:2*r, 1:r);
-[X0_gep, D0_gep] = eig(V210', V110');
-lambda0_gep = diag(D0_gep);
-[~, idx0_gep] = min(abs(lambda0_gep - lambda_true));
-x0_gep = X0_gep(:, idx0_gep);
-x0_gep = x0_gep / norm(x0_gep);
-y_star = [-lambda0_gep(idx0_gep) * x0_gep; x0_gep];
+y_hat = Q' * v_true;
+y_hat = y_hat / norm(y_hat);
+y_star = [-lambda_true * y_hat; y_hat];
 y_star = y_star / norm(y_star);
+sin_y_star_V2 = norm(y_star - Vtail0 * (Vtail0' * y_star));
 
 l_list = 2*r:n;
 ntrials = 20;
@@ -158,6 +156,7 @@ for ii = 1:numel(l_list)
             sin_tildeV2_V2_fro = norm(Vhead_s' * Vtail0);
             Vtail_s = Vs(:, r+1:2*r);
             sin_y_star_tildeV2 = norm(y_star - Vtail_s * (Vtail_s' * y_star));
+
 
             V11s = Vs(1:r, 1:r);
             V21s = Vs(r+1:2*r, 1:r);
@@ -286,9 +285,11 @@ figure;
 semilogy(gep_results(:, 1), gep_results(:, 8), 'bo-', 'MarkerSize', 4, 'LineWidth', 1.5);
 hold on;
 semilogy(gep_results(:, 1), gep_results(:, 22), 'rs-', 'MarkerSize', 4, 'LineWidth', 1.5);
+semilogy(gep_results(:, 1), max(sin_y_star_V2, eps) * ones(size(gep_results(:, 1))), ...
+    'k--', 'LineWidth', 1.5);
 xlabel('$\ell$', 'Interpreter', 'latex');
 ylabel('$\sin\angle(y_*, \mathrm{span}(\widetilde V_2))$', 'Interpreter', 'latex');
-legend({'Gaussian', 'SRHT'}, ...
+legend({'Gaussian', 'SRHT', 'Original $V_2$'}, ...
     'Interpreter', 'latex', 'Location', 'best', 'FontSize', 13);
 grid on;
 set(gcf, 'Units', 'inches');

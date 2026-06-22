@@ -9,6 +9,7 @@ function [QB, info, R] = build_QB_from_A(A, mB, opts)
     if nargin < 3 || isempty(opts)
         opts = struct();
     end
+    want_info = nargout >= 2;
 
     normalize_columns = get_logical_opt(opts, 'normalize_columns', false);
     pivot = get_logical_opt(opts, 'pivot', false);
@@ -16,10 +17,7 @@ function [QB, info, R] = build_QB_from_A(A, mB, opts)
     qr_tau = get_opt(opts, 'qr_tau', []);
 
     if normalize_columns
-        column_norms = max(vecnorm(A), 1e-300);
-        A = A ./ column_norms;
-    else
-        column_norms = [];
+        A = A ./ max(vecnorm(A), 1e-300);
     end
 
     if pivot
@@ -33,27 +31,21 @@ function [QB, info, R] = build_QB_from_A(A, mB, opts)
     if sign_fix
         d = sign(diag(R));
         d(d == 0) = 1;
-        D = diag(d);
-        Q = Q * D;
-        R = D * R;
+        Q = bsxfun(@times, Q, d.');
+        R = bsxfun(@times, d, R);
     end
-    % condR = cond(R);
 
     diagR = abs(diag(R));
     rank_qr = local_truncation_rank(diagR, qr_tau);
 
     Q = Q(:, 1:rank_qr);
     QB = Q(1:mB, :);
-    Rp = R(1:rank_qr, 1:rank_qr);
-    condR = cond(Rp);
 
-
-    info = struct();
-    info.perm = perm;
-    info.diagR = diagR;
-    info.rank = rank_qr;
-    info.selected_cols = perm(1:rank_qr);
-    info.column_norms = column_norms;
+    if want_info
+        info = struct();
+        info.rank = rank_qr;
+        info.selected_cols = perm(1:rank_qr);
+    end
 end
 
 
