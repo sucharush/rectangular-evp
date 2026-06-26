@@ -6,7 +6,7 @@ function [lam_star, sig_star, info] = minimizer_aaa_real(a, b, objective, opts)
     end
 
     if ~isfield(opts, 'nZ'),       opts.nZ = 100; end
-    if ~isfield(opts, 'delta'),    opts.delta = 1e-13; end
+    if ~isfield(opts, 'delta'),    opts.delta = 1e-18; end
     if ~isfield(opts, 'imag_tol'), opts.imag_tol = 1e-3; end
     if ~isfield(opts, 'mmax'),     opts.mmax = 100; end
     if ~isfield(opts, 'eval_tol'), opts.eval_tol = 1e-13; end

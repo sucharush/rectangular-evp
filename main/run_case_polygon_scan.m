@@ -38,9 +38,8 @@ problem = build_polygon_problem(cfg);
 sigma_fun_scan = @(lam) problem.ops.sigma(lam);
 
 cfg_refine = cfg;
-% cfg.qr_pivot = false;
-cfg_refine.qr_tau = [];
-cfg_refine.qr_tau = 1e-13; 
+cfg_refine.qr_pivot = false;  % refinement: plain QR, no pivoting
+cfg_refine.qr_tau = [];       % refinement: no rank truncation
 sigma_fun_refine = @(lam) sigma_polygon(problem.data.geom, cfg_refine, lam);
 
 % % ---------------------------------
@@ -84,9 +83,9 @@ opts.refine.minimizer_opts = struct( ...
     'n_pre', 0);
 
 % opts.refine.minimizer = @minimizer_aaa_real;
-% or
-% % opts.refine.minimizer = @minimizer_aaa_ellipse;
-%
+% 
+% opts.refine.minimizer = @minimizer_aaa_ellipse;
+% 
 % opts.refine.minimizer_opts = struct( ...
 %     'nZ', 100, ...
 %     'delta', 1e-13, ...
@@ -320,7 +319,8 @@ else
     fprintf('\n=== Local Cluster Resolution ===\n');
     for ic = 1:numel(cand_acc)
         cand = cand_acc(ic);
-        report = resolve_local_cluster(problem, sigma_fun_scan, cand, [a, b], opts.refine, cfg, cluster_opts);
+        report = resolve_local_cluster(problem, sigma_fun_scan, sigma_fun_refine, ...
+            cand, [a, b], opts.refine, cfg, cluster_opts);
         print_cluster_report(report);
 
         if do_plots && report.cluster_detected && ~isempty(report.micro_scan.lamvec)
@@ -334,7 +334,8 @@ end
 %% ============================================================
 % local function
 % ============================================================
-function report = resolve_local_cluster(problem, sigma_fun, cand, global_interval, refine_opts, cfg, cluster_opts)
+function report = resolve_local_cluster(problem, sigma_fun_scan, sigma_fun_refine, ...
+        cand, global_interval, refine_opts, cfg, cluster_opts)
     lam_star = cand.refined_lambda;
     L_macro = max(abs(cand.bracket - lam_star));
 
@@ -408,7 +409,7 @@ function report = resolve_local_cluster(problem, sigma_fun, cand, global_interva
     lamvec = linspace(lam_left, lam_right, n_micro);
     S_micro = zeros(size(lamvec));
     for i = 1:numel(lamvec)
-        S_micro(i) = sigma_fun(lamvec(i));
+        S_micro(i) = sigma_fun_scan(lamvec(i));
     end
 
     J = 2:numel(lamvec)-1;
@@ -423,7 +424,7 @@ function report = resolve_local_cluster(problem, sigma_fun, cand, global_interva
     micro_scan.meta.n_scan_points = numel(lamvec);
     micro_scan.meta.n_candidates = numel(J);
 
-    refined_candidates = refine_candidates(sigma_fun, micro_scan, refine_opts);
+    refined_candidates = refine_candidates(sigma_fun_refine, micro_scan, refine_opts);
     extra_mask = local_extra_dip_mask(refined_candidates, lam_star, L_fine);
 
     report.micro_scan = micro_scan;

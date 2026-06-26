@@ -42,6 +42,10 @@ function h = plot_local_micro_scan_report(report, varargin)
         h.extra = semilogy(extra_lam, extra_sig, 'ro', 'MarkerFaceColor', 'r');
         legend_handles(end+1) = h.extra;
         legend_labels{end+1} = 'extra dips';
+
+        h.lambda_extra = xline(extra_lam, 'r--', 'LineWidth', 1.0);
+        % legend_handles(end+1) = h.lambda_extra;
+        % legend_labels{end+1} = '\lambda';
     end
 
     xlabel('\lambda');

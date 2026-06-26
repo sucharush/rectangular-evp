@@ -264,39 +264,7 @@ set(gcf, 'PaperUnits', 'inches');
 set(gcf, 'PaperPositionMode', 'auto');
 print(gcf, 'saved_plots/testpara_gep_sin_tildeV2_V2.eps', '-depsc2', '-painters');
 
-figure;
-semilogy(gep_results(:, 1), gep_results(:, 5), 'bo-', 'MarkerSize', 4, 'LineWidth', 1.5);
-hold on;
-semilogy(gep_results(:, 1), gep_results(:, 6), 'b--o', 'MarkerSize', 4, 'LineWidth', 1.5);
-semilogy(gep_results(:, 1), gep_results(:, 19), 'rs-', 'MarkerSize', 4, 'LineWidth', 1.5);
-semilogy(gep_results(:, 1), gep_results(:, 20), 'r--s', 'MarkerSize', 4, 'LineWidth', 1.5);
-xlabel('$\ell$', 'Interpreter', 'latex');
-ylabel('error', 'Interpreter', 'latex');
-legend({'Gaussian eig', 'Gaussian vector', 'SRHT eig', 'SRHT vector'}, ...
-    'Interpreter', 'latex', 'Location', 'best', 'FontSize', 13);
-grid on;
-set(gcf, 'Units', 'inches');
-set(gcf, 'Position', [1, 1, 6.6, 5.8]);
-set(gcf, 'PaperUnits', 'inches');
-set(gcf, 'PaperPositionMode', 'auto');
-print(gcf, 'saved_plots/testpara_gep_eig_vector_gaussian_srht.eps', '-depsc2', '-painters');
 
-figure;
-semilogy(gep_results(:, 1), gep_results(:, 8), 'bo-', 'MarkerSize', 4, 'LineWidth', 1.5);
-hold on;
-semilogy(gep_results(:, 1), gep_results(:, 22), 'rs-', 'MarkerSize', 4, 'LineWidth', 1.5);
-semilogy(gep_results(:, 1), max(sin_y_star_V2, eps) * ones(size(gep_results(:, 1))), ...
-    'k--', 'LineWidth', 1.5);
-xlabel('$\ell$', 'Interpreter', 'latex');
-ylabel('$\sin\angle(y_*, \mathrm{span}(\widetilde V_2))$', 'Interpreter', 'latex');
-legend({'Gaussian', 'SRHT', 'Original $V_2$'}, ...
-    'Interpreter', 'latex', 'Location', 'best', 'FontSize', 13);
-grid on;
-set(gcf, 'Units', 'inches');
-set(gcf, 'Position', [1, 1, 6.6, 5.8]);
-set(gcf, 'PaperUnits', 'inches');
-set(gcf, 'PaperPositionMode', 'auto');
-print(gcf, 'saved_plots/testpara_gep_y_star_tildeV2_angle.eps', '-depsc2', '-painters');
 %%
 plot_summary(dimQ, sub_err, abserr_full, angle_full, ...
     abserr_sketch_med, angle_sketch_med, spec_valid, ell_labels, sketch_type);
@@ -313,7 +281,7 @@ function sol = solve_pencil(A, Q, ell, sketch_type, lam_true, v_true)
     end
 
     if size(Asketch, 1) > size(Asketch, 2)
-        [X, lam_all] = local_tls_pencil_eigs(Asketch, Qsketch);
+        [X, lam_all] = tls_pencil_eigs(Asketch, Qsketch);
     elseif size(Asketch, 1) == size(Asketch, 2)
         [X, lam_all] = eig(Asketch, Qsketch, 'vector');
     else
@@ -369,24 +337,6 @@ function [Qsketch, Asketch] = build_sketch_blocks(Q, AQ, ell, sketch_type)
     else
         error('Unknown sketch_type "%s". Use gaussian, haar, or srht.', sketch_type);
     end
-end
-
-function [vec_tls_all, lam_tls_all] = local_tls_pencil_eigs(A, B)
-    [nA, rA] = size(A);
-    [nB, rB] = size(B);
-    if nA ~= nB || rA ~= rB
-        error('A and B must have the same size n-by-r.');
-    end
-
-    r = rA;
-    [~, ~, Vc] = svd([B, A], 0);
-    if size(Vc, 2) < r
-        error('SVD did not return enough right singular vectors.');
-    end
-
-    V11 = Vc(1:r, 1:r);
-    V21 = Vc(r+1:2*r, 1:r);
-    [vec_tls_all, lam_tls_all] = eig(V21', V11', 'vector');
 end
 
 function s = sigma_min_pencil(A, B, lam)
@@ -470,59 +420,6 @@ function plot_summary(dimQ, sub_err, abserr_full, angle_full, ...
 
     valid_cols = find(any(spec_valid, 1));
     colors = lines(max(numel(valid_cols), 1));
-
-    figure;
-    h = gobjects(numel(valid_cols) + 2, 1);
-    h(1) = semilogy(dimQ, angle_full, 'bo-', 'LineWidth', 1.5);
-    hold on;
-
-    for jj = 1:numel(valid_cols)
-        col = valid_cols(jj);
-        h(jj+1) = semilogy(dimQ, angle_sketch_med(:, col), '-', ...
-            'Color', colors(jj, :), 'LineWidth', 1.5);
-    end
-
-    h(end) = semilogy(dimQ, sub_err, 'k--', 'LineWidth', 1.5);
-    xlabel('dim(Q)', 'Interpreter', 'latex');
-    legend(h, [{'MP'}, labels(valid_cols), {'subspace angle'}], 'Location', 'best');
-    grid on;
-    set(gcf, 'Units', 'inches');
-    set(gcf, 'Position', [1, 1, 6.6, 5.8]);
-    set(gcf, 'PaperUnits', 'inches');
-    set(gcf, 'PaperPositionMode', 'auto');
-    print(gcf, 'saved_plots/testpara_angle04.eps', '-depsc2', '-painters');
-
-    figure;
-    h = gobjects(numel(valid_cols) + 2, 1);
-    h_idx = 1;
-    h(h_idx) = semilogy(dimQ, abserr_full, 'bo-', 'LineWidth', 1.5);
-    hold on;
-
-    err_labels = cell(1, numel(h));
-    err_labels{1} = 'MP refined';
-    label_idx = 2;
-
-    for jj = 1:numel(valid_cols)
-        col = valid_cols(jj);
-        h_idx = h_idx + 1;
-        h(h_idx) = semilogy(dimQ, abserr_sketch_med(:, col), '-', ...
-            'Color', colors(jj, :), 'LineWidth', 1.5);
-        err_labels{label_idx} = [labels{col}, ' refined'];
-        label_idx = label_idx + 1;
-    end
-
-    h_idx = h_idx + 1;
-    h(h_idx) = semilogy(dimQ, sub_err, 'k--', 'LineWidth', 1.5);
-    err_labels{h_idx} = 'subspace angle';
-
-    xlabel('dim(Q)', 'Interpreter', 'latex');
-    legend(h(1:h_idx), err_labels(1:h_idx), 'Location', 'best', 'FontSize', 12);
-    grid on;
-    set(gcf, 'Units', 'inches');
-    set(gcf, 'Position', [1, 1, 6.6, 5.8]);
-    set(gcf, 'PaperUnits', 'inches');
-    set(gcf, 'PaperPositionMode', 'auto');
-    print(gcf, 'saved_plots/testpara_err04.eps', '-depsc2', '-painters');
 
     figure;
     semilogy(dimQ, abserr_full, 'b-o', 'LineWidth', 1.5);

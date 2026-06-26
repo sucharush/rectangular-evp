@@ -1,12 +1,12 @@
 % clear; close all;
 
-n = 15;
+n = 30;
 m_list = [n, ceil(n+10)];
 alpha = 3;
 beta = 0.04;
 minbound = 1;
 maxbound = 12;
-restol = 1e-3;
+restol = 1e-5;
 
 Kmax = max(n + 8, ceil(2 * maxbound / pi) + 8);
 k = (1:Kmax).';
@@ -36,35 +36,33 @@ for jj = 1:numel(m_list)
     lam_tls_plot = lam_tls_all(keep_plot);
     vec_tls_plot = vec_tls_all(:, keep_plot);
 
+    [lam_accept, ~, res_accept, lam_exact, err_exact] = tls_refine( ...
+        lam_tls_plot, vec_tls_plot, F_res, lam_true_plot, restol);
+    keep_table = selected_table_window(lam_accept, minbound, maxbound);
+    match_table = table( ...
+        lam_accept(keep_table), lam_exact(keep_table), ...
+        res_accept(keep_table), err_exact(keep_table), ...
+        'VariableNames', {'lam_accept', 'lam_exact', 'res_accept', 'err_exact'});
+    fprintf('m = %d accepted eigenvalue error table:\n', m);
+    disp(match_table);
+
+    if m == n
+        continue;
+    end
+
+    keep_reject = true(size(lam_tls_plot));
+    for ii = 1:numel(lam_accept)
+        [~, idx] = min(abs(lam_tls_plot - lam_accept(ii)) + (~keep_reject) * 1e100);
+        keep_reject(idx) = false;
+    end
+    lam_reject = lam_tls_plot(keep_reject);
+
     figure;
     plot(real(lam_true_plot), imag(lam_true_plot), 'ko', 'MarkerSize', 6, 'LineWidth', 1.2);
     hold on;
-
-    if m == n
-        plot(real(lam_tls_plot), imag(lam_tls_plot), 'bx', 'MarkerSize', 7, 'LineWidth', 1.2);
-        legend('exact', 'computed', 'Location', 'best');
-    else
-        [lam_accept, ~, res_accept, lam_exact, err_exact] = tls_refine( ...
-            lam_tls_plot, vec_tls_plot, F_res, lam_true_plot, restol);
-        keep_table = selected_table_window(lam_accept, minbound, maxbound);
-        match_table = table( ...
-            lam_accept(keep_table), lam_exact(keep_table), ...
-            res_accept(keep_table), err_exact(keep_table), ...
-            'VariableNames', {'lam_accept', 'lam_exact', 'res_accept', 'err_exact'});
-        fprintf('m = %d accepted eigenvalue error table:\n', m);
-        disp(match_table);
-
-        keep_reject = true(size(lam_tls_plot));
-        for ii = 1:numel(lam_accept)
-            [~, idx] = min(abs(lam_tls_plot - lam_accept(ii)) + (~keep_reject) * 1e100);
-            keep_reject(idx) = false;
-        end
-        lam_reject = lam_tls_plot(keep_reject);
-
-        plot(real(lam_accept), imag(lam_accept), 'bx', 'MarkerSize', 7, 'LineWidth', 1.2);
-        plot(real(lam_reject), imag(lam_reject), 'r+', 'MarkerSize', 7, 'LineWidth', 1.2);
-        legend('exact', 'accepted', 'rejected', 'Location', 'best', 'FontSize', 13);
-    end
+    plot(real(lam_accept), imag(lam_accept), 'bx', 'MarkerSize', 7, 'LineWidth', 1.2);
+    plot(real(lam_reject), imag(lam_reject), 'r+', 'MarkerSize', 7, 'LineWidth', 1.2);
+    legend('exact', 'accepted', 'rejected', 'Location', 'best', 'FontSize', 13);
 
     hold off;
     xlabel('Re(\lambda)');
@@ -208,8 +206,8 @@ function [A, B, F, F_mv, F_res] = poly_rect_linearization(Acell)
         if denom == 0
             res_rel = Inf;
         else
-            % res_rel = res_abs / denom;
-            res_rel = res_abs;
+            res_rel = res_abs / denom;
+            % res_rel = res_abs;
         end
     end
 
@@ -220,20 +218,29 @@ end
 
 function [lam_refined, vec_refined, res_refined, lam_exact, err_exact] = ...
     tls_refine(lam_tls_all, vec_tls_all, F_res, lam_true_all, restol)
-    n = size(vec_tls_all, 1) / 2;
-    m = numel(lam_tls_all);
+    vec_len = size(vec_tls_all, 1);
+    if mod(vec_len, 2) ~= 0
+        error('TLS eigenvectors must have even length for a quadratic pencil.');
+    end
+
+    block_dim = vec_len / 2;
+    num_candidates = numel(lam_tls_all);
+    if size(vec_tls_all, 2) ~= num_candidates
+        error('Number of TLS eigenvectors must match number of TLS eigenvalues.');
+    end
+
     lam_refined = [];
-    vec_refined = zeros(n, 0);
+    vec_refined = zeros(block_dim, 0);
     res_refined = [];
     lam_exact = [];
     err_exact = [];
-    for ii = 1:m
+    for ii = 1:num_candidates
         lam = lam_tls_all(ii);
         vec = vec_tls_all(:, ii);
-        y1 = vec(n + 1:end);
-        y2 = vec(1:n) / lam;
-        if length(y1) ~= length(y2)
-            error('extracted eigenvalues have different dimension');
+        y1 = vec(block_dim + 1:end);
+        y2 = vec(1:block_dim) / lam;
+        if numel(y1) ~= numel(y2)
+            error('Extracted eigenvector blocks have different dimensions.');
         end
         U = [y1, y2];
         [Q, ~, ~] = svd(U, 'econ');
@@ -255,7 +262,8 @@ function keep = selected_table_window(lam, minbound, maxbound)
     keep = imag(lam) >= 0 ...
         & abs(real(lam)) <= maxbound ...
         & abs(imag(lam)) <= maxbound ...
-        & (abs(real(lam)) >= minbound | abs(imag(lam)) >= minbound);
+        & abs(real(lam)) >= minbound ...
+        & abs(imag(lam)) >= minbound;
 end
 function save_plot_eps(name)
     plot_dir = 'saved_plots';

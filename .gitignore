@@ -36,3 +36,6 @@ sfunction_debug_report.txt
 !plots/plot_*.m
 
 trisection.m
+*.tex
+*doc*
+*chebfun*
