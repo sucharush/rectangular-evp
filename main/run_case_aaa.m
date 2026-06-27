@@ -1,19 +1,27 @@
 clear; close all; clc;
 seed = 0;
 rng(seed);
-k_runs = 1;
 last_seed = seed;
+
+% ------------------------------------------------------------
+% Linearization of the AAA rational surrogate:
+%   'newton'      -> Newton-form rectangular pencil  (run_case_aaa_newton)
+%   'barycentric' -> star-barycentric pencil         (run_case_aaa_bary)
+% ------------------------------------------------------------
+linearization = 'barycentric';
+
 this_file = mfilename('fullpath');
 this_dir = fileparts(this_file);
 project_root = fileparts(this_dir);
 
 addpath(fullfile(project_root, 'cases'));
 addpath(fullfile(project_root, 'polygon'));
-addpath(fullfile(project_root, 'problem_builders'));
 addpath(fullfile(project_root, 'solvers'));
 addpath(fullfile(project_root, 'rational'));
 addpath(fullfile(project_root, 'core'));
 addpath(fullfile(project_root, 'plots'));
+
+strat = get_linearization_strategy(linearization);
 
 % ============================================================
 % Example 1: polygon backend
@@ -50,7 +58,7 @@ opts.interval = [a, b];
 
 opts.aaa = struct();
 opts.aaa.nCand = 1000;
-opts.aaa.aaa_tol = 1e-8;
+opts.aaa.aaa_tol = 1e-11;
 opts.aaa.mmax = 80;
 opts.aaa.seed = 0;
 opts.aaa.max_norm = true;
@@ -64,7 +72,6 @@ opts.verify.compute_bary_error = true;
 % Run for ell = 2 and 4, average over k runs
 % Keep the final stored result at seed = 0
 % ============================================================
-ell_list = [2, 4];
 ell_list = [2, 4];
 results_direct = cell(numel(ell_list), 1);
 results_proc   = cell(numel(ell_list), 1);
@@ -194,9 +201,7 @@ for ii = 1:numel(ell_list)
 
     xlim([a, b]);
     grid on;
-    % ylabel('rel. Fro error');
     legend(ax, 'FontSize', 13);
-    % legend('Location', 'best');
 
     if ell == 2
         ylim([1e-10, 1e-7]);
@@ -209,14 +214,10 @@ for ii = 1:numel(ell_list)
     end
 end
 
-save_plot_eps('error_bary');
-% if ~exist('saved_plots', 'dir')
-%     mkdir('saved_plots');
-% end
-% title(t, 'Barycentric approximation error');
-% export_fig("saved_plots/error_bary.eps")
+if ~exist('saved_plots', 'dir')
+    mkdir('saved_plots');
+end
 saveas(gcf, 'saved_plots/error_bary.eps', 'epsc');
-% save_plot_eps('error_bary');
 %%
 % ============================================================
 % Plot 2: consecutive change on [a,b]
@@ -275,32 +276,21 @@ end
 %%
 figure;
 semilogy(lam_grid(2:end), diff_raw,  '-',  'LineWidth', 1.2); hold on;
-semilogy(lam_grid(2:end), diff_proc, '-.', 'LineWidth', 1.2); 
+semilogy(lam_grid(2:end), diff_proc, '-.', 'LineWidth', 1.2);
 semilogy(lam_grid(2:end), diff_proj, '--', 'LineWidth', 1.2);
-% ylim([1e-3, 3e-2]);
+ylim([1e-3, 3e-2]);
 set(gca, 'YScale', 'log');
 ax = gca;
-% ax.FontSize = 13;
 disp(ax.YScale)
 grid on;
 xlabel('\lambda');
-% ylabel('||F_k - F_{k-1}||_F');
-% legend('Q_B(\lambda)', 'Q_B(\lambda) + Procrustes', 'Q_B(\lambda)Q_B(\lambda)^*', ...
-%     'Location', 'best');
 legend('normalized', 'Procrustes', 'projector', 'FontSize', 13);
-% title('Consecutive change');
-% export_fig("saved_plots/continue.eps")
 saveas(gcf, 'saved_plots/continue.eps', 'epsc');
-% save_plot_eps('error_bary');
 
 %%
 % ============================================================
-% Plot 3: sigma_min on linearized pencils for all 4 outputs
+% Plot 3: sigma_min on linearized pencils for the two ell=4 outputs
 % ============================================================
-% lam_true = [ ...
-%     7.248077862494475, ...
-%     9.209294998335231, ...
-%     10.596985691456322];
 lam_true = [ ...
     7.247948913733, ...
     9.208978724772, ...
@@ -324,7 +314,7 @@ if isempty(idx4)
     error('ell = 4 not found in ell_list.');
 end
 
-tls_imag_tol = 1e-1;
+tls_imag_tol = strat.imag_tol;
 tls_top_k = 10;
 pencil_data = cell(2, 1);
 
@@ -340,7 +330,7 @@ styles = {'o-', 's--'};
 
 for k = 1:2
     out = outs{k};
-    [A, B] = build_rectangular_linear_pencil(out.D, out.sigma, out.beta, out.h, out.k);
+    [A, B] = strat.build_pencil(out);
     tls_data = collect_tls_pencil_data(A, B, [a, b], tls_imag_tol);
     pencil_data{k} = struct('A', A, 'B', B, 'tls', tls_data);
 
@@ -370,11 +360,9 @@ end
 xlabel('\lambda');
 ylabel('\sigma_{min}(M-\lambda B)');
 xlim([a, b]);
-% legend('Location', 'best');
 legend('FontSize', 13);
-% title('Smallest singular value of the linearized pencils, l=4');
 grid on;
-saveas(gcf, 'saved_plots/aaa_linearized_newton.eps', 'epsc');
+saveas(gcf, sprintf('saved_plots/%s.eps', strat.save_name), 'epsc');
 
 %%
 % ============================================================
@@ -384,13 +372,36 @@ tls_block_top_k = 20;
 
 for k = 1:2
     out = outs{k};
-    report_tls_block_postfilter(out, pencil_data{k}, lam_true, tls_block_top_k, names{k});
+    strat.postfilter(out, pencil_data{k}, lam_true, tls_block_top_k, names{k});
 end
 
 %%
 % %%%%%%%%%%%%%%%%%%%%
 %     helpers
 % %%%%%%%%%%%%%%%%%%%%
+function strat = get_linearization_strategy(name)
+% Select the linearization-specific pieces: pencil builder, TLS imaginary
+% tolerance, block post-filter, and the plot file name.
+    switch lower(name)
+        case 'newton'
+            strat.name = 'newton';
+            strat.build_pencil = @(out) build_newton_rect_pencil( ...
+                out.D, out.sigma, out.beta, out.h, out.k);
+            strat.imag_tol = 1e-1;
+            strat.postfilter = @report_tls_newton_postfilter;
+            strat.save_name = 'aaa_linearized_newton';
+        case 'barycentric'
+            strat.name = 'barycentric';
+            strat.build_pencil = @(out) build_barycentric_star_pencil( ...
+                out.D, out.zj, out.wj);
+            strat.imag_tol = 1e-2;
+            strat.postfilter = @report_tls_barycentric_postfilter;
+            strat.save_name = 'aaa_linearized_bary';
+        otherwise
+            error('get_linearization_strategy: unknown linearization ''%s''.', name);
+    end
+end
+
 function QB = build_QB_from_Aop(A_op, mB, lam)
     A = A_op(lam);
     [Q, R] = qr(A, 0);
@@ -400,303 +411,4 @@ function QB = build_QB_from_Aop(A_op, mB, lam)
     Q = Q * diag(s);
 
     QB = Q(1:mB, :);
-end
-function [A, B] = build_rectangular_linear_pencil(D, sigma, beta, h, k)
-% Direct rectangular analogue of Theorem 3.
-%
-% D{1},...,D{m+1} correspond to D_0,...,D_m, each p-by-q
-% sigma, beta, h, k are length-m
-
-    m = numel(beta);
-    [p,q] = size(D{1});
-
-    nrows = p + (m-1)*q;
-    ncols = m*q;
-
-    A = sparse(nrows, ncols);
-    B = sparse(nrows, ncols);
-
-    hm = h(m);
-    km = k(m);
-    betam = beta(m);
-
-    % top block row
-    for j = 1:(m-1)
-        cols = (j-1)*q + (1:q);
-        A(1:p, cols) = hm * D{j};
-        B(1:p, cols) = km * D{j};
-    end
-
-    cols = (m-1)*q + (1:q);
-    % FIX 1: Removed spurious 'hm' from the D{m+1} tail correction
-    A(1:p, cols) = hm * D{m} - (sigma(m) / betam) * D{m+1};
-    B(1:p, cols) = km * D{m} - (1 / betam) * D{m+1};
-
-    Iq = speye(q);
-
-    % lower block rows
-    for i = 1:(m-1)
-        rows      = p + (i-1)*q + (1:q);
-        col_left  = (i-1)*q + (1:q);
-        col_right = i*q     + (1:q);
-
-        % no 'h(i)' from the last term
-        A(rows, col_left)  = sigma(i) * Iq;
-        A(rows, col_right) = h(i) * beta(i)  * Iq;
-
-        B(rows, col_left)  = 1 * Iq;
-        B(rows, col_right) = k(i) * beta(i)  * Iq;
-    end
-    % Compute a rough norm of the top row vs the identity blocks
-    norm_top = norm(A(1:p, :), 'inf') + norm(B(1:p, :), 'inf');
-    norm_bot = norm(A(p+1:end, :), 'inf') + norm(B(p+1:end, :), 'inf');
-    
-    % Scale the top row equations to match the lower recurrence equations
-    gamma = norm_bot / max(norm_top, 1e-14);
-    A(1:p, :) = gamma * A(1:p, :);
-    B(1:p, :) = gamma * B(1:p, :);
-end
-
-function tls_data = collect_tls_pencil_data(A, B, interval, imag_tol)
-    [vec_tls_all, lam_tls_all] = tls_pencil_eigs(full(A), full(B));
-
-    lam_tls_all = lam_tls_all(:);
-    nlam = numel(lam_tls_all);
-
-    if size(vec_tls_all, 2) ~= nlam
-        error('collect_tls_pencil_data: inconsistent TLS eigenvector/eigenvalue sizes.');
-    end
-
-    abs_res = nan(nlam, 1);
-    rel_res = nan(nlam, 1);
-
-    normA = norm(A, 'fro');
-    normB = norm(B, 'fro');
-
-    for j = 1:nlam
-        lam = lam_tls_all(j);
-        x = vec_tls_all(:, j);
-
-        if ~all(isfinite([real(lam), imag(lam)]))
-            continue;
-        end
-
-        xnorm = norm(x);
-        if xnorm == 0 || ~isfinite(xnorm)
-            continue;
-        end
-
-        r = (A - lam * B) * x;
-        abs_res(j) = norm(r);
-        rel_res(j) = abs_res(j) / max((normA + abs(lam) * normB) * xnorm, 1e-14);
-    end
-
-    keep_mask = isfinite(real(lam_tls_all)) ...
-        & isfinite(imag(lam_tls_all)) ...
-        & isfinite(rel_res) ...
-        & real(lam_tls_all) >= interval(1) ...
-        & real(lam_tls_all) <= interval(2) ...
-        & abs(imag(lam_tls_all)) <= imag_tol;
-
-    tls_data = struct();
-    tls_data.A = A;
-    tls_data.B = B;
-    tls_data.lam_all = lam_tls_all;
-    tls_data.vec_all = vec_tls_all;
-    tls_data.abs_res_all = abs_res;
-    tls_data.rel_res_all = rel_res;
-    tls_data.keep_mask = keep_mask;
-    tls_data.idx_keep = find(keep_mask);
-    tls_data.interval = interval;
-    tls_data.imag_tol = imag_tol;
-end
-
-function report_tls_pencil_pairs(tls_data, lam_true, top_k, label)
-    idx_keep = tls_data.idx_keep;
-    rel_res = tls_data.rel_res_all;
-    lam_tls_all = tls_data.lam_all;
-    abs_res = tls_data.abs_res_all;
-
-    [~, order] = sort(rel_res(idx_keep), 'ascend');
-    idx_ranked = idx_keep(order);
-    idx_top = idx_ranked(1:min(top_k, numel(idx_ranked)));
-
-    fprintf('\nTLS pencil candidates: %s\n', label);
-    fprintf('  prefilter: real(lambda) in [%.6f, %.6f], |imag(lambda)| <= %.3g\n', ...
-        tls_data.interval(1), tls_data.interval(2), tls_data.imag_tol);
-    fprintf('  kept %d of %d TLS pairs; reporting top %d by relative residual.\n', ...
-        numel(idx_keep), numel(lam_tls_all), numel(idx_top));
-
-    if isempty(idx_top)
-        fprintf('  no TLS pairs passed the prefilter.\n');
-    else
-        fprintf('%4s  %16s  %11s  %12s  %12s  %16s  %12s\n', ...
-            'rank', 'real(lambda)', 'imag(lambda)', 'rel_res', 'abs_res', ...
-            'matched_true', 'err_true');
-
-        for t = 1:numel(idx_top)
-            j = idx_top(t);
-            [err_to_true, idx_true] = min(abs(lam_tls_all(j) - lam_true(:)));
-            matched_true = lam_true(idx_true);
-            fprintf('%4d  %16.12f  %11.3e  %12.3e  %12.3e  %16.12f  %12.3e\n', ...
-                t, real(lam_tls_all(j)), imag(lam_tls_all(j)), rel_res(j), ...
-                abs_res(j), matched_true, err_to_true);
-        end
-    end
-end
-
-function report_tls_block_postfilter(out, pencil_data, lam_true, top_k, label)
-    A = pencil_data.A;
-    B = pencil_data.B;
-    tls_data = pencil_data.tls;
-    lam_tls_all = tls_data.lam_all;
-    vec_tls_all = tls_data.vec_all;
-    idx_keep = tls_data.idx_keep;
-    m = out.m;
-    q = out.q;
-
-    if size(vec_tls_all, 1) ~= m * q
-        error('report_tls_block_postfilter: TLS eigenvector length does not match m*q.');
-    end
-
-    nkeep = numel(idx_keep);
-    reduced_score = nan(nkeep, 1);
-    first_block_score = nan(nkeep, 1);
-    matched_true = nan(nkeep, 1);
-    err_to_true = nan(nkeep, 1);
-    subspace_dim = nan(nkeep, 1);
-    n_valid_blocks = nan(nkeep, 1);
-    rel_pencil_res = tls_data.rel_res_all(idx_keep);
-    lam_keep = lam_tls_all(idx_keep);
-
-    for t = 1:nkeep
-        j = idx_keep(t);
-        lam = lam_keep(t);
-        x = vec_tls_all(:, j);
-
-        bj = local_newton_basis_prefix(lam, out.sigma, out.beta, out.h, out.k);
-        [U, n_valid] = local_build_tls_block_subspace(x, bj, q);
-        if isempty(U)
-            continue;
-        end
-
-        Rb = aaa_eval_matrix_barycentric(lam, out.zj, out.wj, out.D);
-        RU = Rb * U;
-        svals_reduced = svd(RU, 'econ');
-        if isempty(svals_reduced)
-            continue;
-        end
-
-        reduced_score(t) = svals_reduced(end);
-        subspace_dim(t) = size(U, 2);
-        n_valid_blocks(t) = n_valid;
-
-        y_first = local_extract_first_block_y(x, q);
-        if ~isempty(y_first)
-            y_first_norm = norm(y_first);
-            first_block_score(t) = norm(Rb * y_first) / max(y_first_norm, 1e-14);
-        end
-
-        [err_to_true(t), idx_true] = min(abs(lam - lam_true(:)));
-        matched_true(t) = lam_true(idx_true);
-    end
-
-    valid_score_idx = find(isfinite(reduced_score));
-    [~, order] = sort(reduced_score(valid_score_idx), 'ascend');
-    idx_ranked = valid_score_idx(order);
-    idx_top = idx_ranked(1:min(top_k, numel(idx_ranked)));
-
-    fprintf('\nTLS reduced-subspace post-filter: %s\n', label);
-    fprintf('  prefilter: real(lambda) in [%.6f, %.6f], |imag(lambda)| <= %.3g\n', ...
-        tls_data.interval(1), tls_data.interval(2), tls_data.imag_tol);
-    fprintf('  prefiltered %d of %d TLS pairs; reporting top %d by reduced score.\n', ...
-        nkeep, numel(lam_tls_all), numel(idx_top));
-
-    if isempty(idx_top)
-        fprintf('  no prefiltered TLS pairs produced a valid reduced subspace score.\n');
-    else
-        fprintf('%4s  %16s  %11s  %12s  %12s  %12s  %6s  %6s  %16s  %12s\n', ...
-            'rank', 'real(lambda)', 'imag(lambda)', 'red_score', 'first_score', ...
-            'pencil_res', 'dimU', 'nblk', 'matched_true', 'err_true');
-
-        for t = 1:numel(idx_top)
-            j = idx_top(t);
-            fprintf('%4d  %16.12f  %11.3e  %12.3e  %12.3e  %12.3e  %6d  %6d  %16.12f  %12.3e\n', ...
-                t, real(lam_keep(j)), imag(lam_keep(j)), reduced_score(j), ...
-                first_block_score(j), rel_pencil_res(j), round(subspace_dim(j)), ...
-                round(n_valid_blocks(j)), matched_true(j), err_to_true(j));
-        end
-    end
-end
-
-function bj = local_newton_basis_prefix(z, sigma, beta, h, k)
-    m = numel(beta);
-    bj = ones(m, 1);
-
-    for j = 1:(m-1)
-        denom = beta(j) * (h(j) - k(j) * z);
-        if ~isfinite(denom) || abs(denom) < 1e-14
-            bj(j+1:end) = NaN;
-            return;
-        end
-        bj(j+1) = ((z - sigma(j)) / denom) * bj(j);
-    end
-end
-
-function [U, n_valid] = local_build_tls_block_subspace(x, bj, q)
-    m = numel(bj);
-    X = reshape(x, q, m);
-    Y = zeros(q, m);
-    keep = false(1, m);
-
-    for j = 1:m
-        if ~isfinite(bj(j)) || abs(bj(j)) < 1e-14
-            continue;
-        end
-
-        yj = X(:, j) / bj(j);
-        if any(~isfinite(yj))
-            continue;
-        end
-
-        Y(:, j) = yj;
-        keep(j) = true;
-    end
-
-    n_valid = nnz(keep);
-    if n_valid == 0
-        U = [];
-        return;
-    end
-
-    Y = Y(:, keep);
-    [Q, R] = qr(Y, 0);
-    diagR = abs(diag(R));
-
-    if isempty(diagR)
-        U = [];
-        n_valid = 0;
-        return;
-    end
-
-    tol = max(size(R)) * eps(max(diagR));
-    rankU = nnz(diagR > tol);
-    U = Q(:, 1:rankU);
-
-    if isempty(U)
-        n_valid = 0;
-    end
-end
-
-function y = local_extract_first_block_y(x, q)
-    if numel(x) < q
-        y = [];
-        return;
-    end
-
-    y = x(1:q);
-    y_norm = norm(y);
-    if ~isfinite(y_norm) || y_norm == 0
-        y = [];
-    end
 end

@@ -26,11 +26,11 @@ function h = plot_local_micro_scan_report(report, varargin)
     legend_labels{end+1} = 'micro-scan';
 
     grid on;
-    h.lambda_star = xline(report.lam_star, 'b--', 'LineWidth', 1.0);
+    h.lambda_star = xline(report.merged_lambda, 'b--', 'LineWidth', 1.0);
     legend_handles(end+1) = h.lambda_star;
     legend_labels{end+1} = '\lambda_*';
 
-    h.base = semilogy(report.lam_star, report.sigma_min, ...
+    h.base = semilogy(report.merged_lambda, report.merged_sigma, ...
         'bo', 'MarkerFaceColor', 'b');
     legend_handles(end+1) = h.base;
     legend_labels{end+1} = 'base dip';
