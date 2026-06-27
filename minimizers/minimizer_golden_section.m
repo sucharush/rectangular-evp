@@ -1,5 +1,5 @@
-function [lam_star, sig_star, info] = minimizer_trisection(a, b, objective, opts)
-% Trisection for a unimodal objective on [a,b].
+function [lam_star, sig_star, info] = minimizer_golden_section(a, b, objective, opts)
+% Golden-section search for a unimodal objective on [a,b].
 
     if nargin < 4
         opts = struct();
@@ -12,29 +12,7 @@ function [lam_star, sig_star, info] = minimizer_trisection(a, b, objective, opts
     message = '';
 
     try
-        % for k = 1:opts.max_iter
-        %     if b - a <= opts.tol_x
-        %         break;
-        %     end
-        % 
-        %     x1 = a + (b - a) / 3;
-        %     x2 = b - (b - a) / 3;
-        % 
-        %     f1 = objective.eval(x1);
-        %     f2 = objective.eval(x2);
-        % 
-        %     if f1 <= f2
-        %         b = x2;
-        %     else
-        %         a = x1;
-        %     end
-        % end
-        % 
-        % lam_star = 0.5 * (a + b);
-        % sig_star = objective.eval(lam_star);
-
-        r = (sqrt(5) - 1) / 2; 
-
+        r = (sqrt(5) - 1) / 2;
 
         x1 = b - r * (b - a);
         x2 = a + r * (b - a);
@@ -75,7 +53,7 @@ function [lam_star, sig_star, info] = minimizer_trisection(a, b, objective, opts
     end
 
     info = struct();
-    info.method = 'trisection';
+    info.method = 'golden_section';
     info.status = status;
     info.message = message;
     info.bracket = [a, b];
