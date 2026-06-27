@@ -1,14 +1,21 @@
 clear; close all; clc;
 rng(0);
 
-%% body
+% ============================================================
+% Pick the experiment (see experiments/polygon_experiment_specs.m):
+%   lshape_scan
+%   gww1_scan
+%   gww2_scan
+%   hshape_width_0p3_scan
+%   hshape_width_0p08_cluster   (scan + cluster-aware post-processing)
+%   gww_pair_scan               (GWW1 vs GWW2 overlay)
+% ============================================================
+spec_name = 'hshape_width_0p08_cluster';
 
 % ---------------------------------
-% 1. add project folders to path
+% project paths
 % ---------------------------------
-
-this_file = mfilename('fullpath');
-this_dir = fileparts(this_file);
+this_dir = fileparts(mfilename('fullpath'));
 project_root = fileparts(this_dir);
 
 addpath(fullfile(project_root, 'cases'));
@@ -17,292 +24,26 @@ addpath(fullfile(project_root, 'core'));
 addpath(fullfile(project_root, 'solvers'));
 addpath(fullfile(project_root, 'minimizers'));
 addpath(fullfile(project_root, 'plots'));
-% ---------------------------------
-% 2. build problem
-% ---------------------------------
-cfg = case_polygon_hshape();
-% cfg = case_polygon_lshape();
-% cfg = case_polygon_drum('right');
-cfg.qr_pivot = true;
-cfg.qr_tau = 1e-13;      % scan truncation, matching the old scan logic
-cfg.nb_per_edge = 60;
-cfg.Mcorner = 60;
-cfg.nI = 50;
+addpath(fullfile(project_root, 'experiments'));
 
 do_plots = true;
-do_singular_trace = false;
-do_pair_derivative_example = true;
 
-problem = build_polygon_problem(cfg);
-sigma_fun_scan = @(lam) problem.ops.sigma(lam);
-
-cfg_refine = cfg;
-cfg_refine.qr_pivot = false;  % refinement: plain QR, no pivoting
-cfg_refine.qr_tau = [];       % refinement: no rank truncation
-sigma_fun_refine = @(lam) sigma_polygon(problem.data.geom, cfg_refine, lam);
-
-% % ---------------------------------
-% % A's numerical rank
-% % ---------------------------------
-% lam_list = 7:0.025:11;
-% A_op = problem.ops.A;
-% ss1 = [];
-% for lam=lam_list
-%     sig = svd(A_op(lam), "econ");
-%
-%     ss1 = [ss1, sig(end)];
-% end
-% figure;
-% semilogy(lam_list, ss1(:), 'b-', 'LineWidth', 1.5);hold on;
-% xlabel('\lambda');
-% ylabel('\sigma_{min}(A(\lambda))');
-% grid on;
-% save_plot_eps('sigA_fullrank');
-%%
 % ---------------------------------
-% 3. solver options
+% shared options (same for every experiment)
+% QR policy invariant: scan = CPQR + qr_tau = 1e-13; refine = plain QR + qr_tau = []
 % ---------------------------------
-opts = struct();
-
-opts.scan = struct();
-opts.scan.lamvec =  1:0.025:6;
-opts.scan.lamvec =  10:0.025:13;
-opts.scan.detect_mode = 'strict_local_min';
-
-opts.refine = struct();
-opts.refine.bracket_halfwidth = 1;
-opts.refine.sigma_cut = 1e-3;
-opts.refine.minimizer = @minimizer_golden_section;
-% opts.refine.minimizer = @minimizer_fminsearch;
-opts.refine.minimizer_opts = struct( ...
+refine_opts = struct();
+refine_opts.bracket_halfwidth = 1;
+refine_opts.sigma_cut = 1e-3;
+refine_opts.minimizer = @minimizer_golden_section;
+refine_opts.minimizer_opts = struct( ...
     'tol_x', 1e-13, ...
     'tol_fun', 1e-12, ...
     'max_iter', 200, ...
     'max_fun_evals', 500, ...
     'n_pre', 0);
-
-% opts.refine.minimizer = @minimizer_aaa_real;
-% 
-% opts.refine.minimizer = @minimizer_aaa_ellipse;
-% 
-% opts.refine.minimizer_opts = struct( ...
-%     'nZ', 100, ...
-%     'delta', 1e-13, ...
-%     'imag_tol', 1e-3, ...
-%     'mmax', 100, ...
-%     'eval_tol', 1e-13, ...
-%     'rho', 1.05);
-
-opts.refine.pre_refine_filter = [];
-opts.refine.local_analyzer = [];
-
-% ---------------------------------
-% 4. solve
-% ---------------------------------
-scan = scan_sigma(sigma_fun_scan, opts.scan);
-candidates = refine_candidates(sigma_fun_refine, scan, opts.refine);
-summary = summarize_candidates(candidates);
-
-result = struct();
-result.method = 'scan_refine_old_logic';
-result.scan = scan;
-result.candidates = candidates;
-result.summary = summary;
-
-% % save("result_left.mat");
-% load("result_left.mat");
-% result = result_left;
-
-% ---------------------------------
-% 5. print summary
-% ---------------------------------
-print_candidate_summary(result);
-
-% ---------------------------------
-% 6. plots
-% ---------------------------------
-if do_plots
-    % plot_polygon_geometry(problem.data.geom, ...
-    %     'plot_title', problem.name, ...
-    %     'save_name', 'polygon_geometry');
-    % scan-refine plot is drawn at the end so it reflects any cluster merge
-end
-result_left = result;
-% %%
-% % ---------------------------------
-% % 2. build problem
-% % ---------------------------------
-% cfg = case_polygon_hshape();
-% cfg = case_polygon_lshape();
-% cfg = case_polygon_drum('right');
-% cfg.qr_pivot = true;
-% cfg.qr_tau = 1e-13;      % scan truncation, matching the old scan logic
-% cfg.nb_per_edge = 140;
-% cfg.Mcorner = 140;
-% cfg.nI = 50;
-%
-% do_plots = true;
-% do_singular_trace = false;
-% do_pair_derivative_example = false;
-%
-% problem = build_polygon_problem(cfg);
-% sigma_fun_scan = @(lam) problem.ops.sigma(lam);
-%
-% cfg_refine = cfg;
-% cfg_refine.qr_tau = [];  % old refine logic: QR without truncation
-% sigma_fun_refine = @(lam) sigma_polygon(problem.data.geom, cfg_refine, lam);
-%
-% % % ---------------------------------
-% % % A's numerical rank
-% % % ---------------------------------
-% % lam_list = 7:0.025:11;
-% % A_op = problem.ops.A;
-% % ss1 = [];
-% % for lam=lam_list
-% %     sig = svd(A_op(lam), "econ");
-% %
-% %     ss1 = [ss1, sig(end)];
-% % end
-% % figure;
-% % semilogy(lam_list, ss1(:), 'b-', 'LineWidth', 1.5);hold on;
-% % xlabel('\lambda');
-% % ylabel('\sigma_{min}(A(\lambda))');
-% % grid on;
-% % save_plot_eps('sigA_fullrank');
-% %%
-% % ---------------------------------
-% % 3. solver options
-% % ---------------------------------
-% opts = struct();
-%
-% opts.scan = struct();
-% opts.scan.lamvec = 1:0.025:6;
-% opts.scan.detect_mode = 'strict_local_min';
-%
-% opts.refine = struct();
-% opts.refine.bracket_halfwidth = 1;
-% opts.refine.sigma_cut = 1e-3;
-% opts.refine.minimizer = @minimizer_fminsearch;
-% opts.refine.minimizer = @minimizer_golden_section;
-% opts.refine.minimizer_opts = struct( ...
-%     'tol_x', 1e-13, ...
-%     'tol_fun', 1e-12, ...
-%     'max_iter', 200, ...
-%     'max_fun_evals', 500, ...
-%     'n_pre', 0);
-%
-%
-% opts.refine.pre_refine_filter = [];
-% opts.refine.local_analyzer = [];
-%
-% % ---------------------------------
-% % 4. solve
-% % ---------------------------------
-% scan = scan_sigma(sigma_fun_scan, opts.scan);
-% candidates = refine_candidates(sigma_fun_refine, scan, opts.refine);
-% summary = summarize_candidates(candidates);
-%
-% result = struct();
-% result.method = 'scan_refine_old_logic';
-% result.scan = scan;
-% result.candidates = candidates;
-% result.summary = summary;
-%
-% % % save("result_left.mat");
-% % load("result_left.mat");
-% % result = result_left;
-%
-% % ---------------------------------
-% % 5. print summary
-% % ---------------------------------
-% print_candidate_summary(result);
-% result_right = result;
-%
-% %%
-%
-% % To compare left/right scans:
-% % 1. Run this script for case_polygon_drum('left'), then set result_left = result.
-% % 2. Run it again for case_polygon_drum('right'), then set result_right = result.
-% % 3. Uncomment:
-% figure;
-% h_left = semilogy(result_left.scan.lamvec, result_left.scan.S, 'k-', 'LineWidth', 1.2); hold on;
-% h_right = semilogy(result_right.scan.lamvec, result_right.scan.S, 'b-', 'LineWidth', 1.2);
-% h_leg = [h_left, h_right];
-% leg_names = {'GWW1 scan', 'GWW2 scan'};
-%
-% if ~isempty(result_left.summary.eigs)
-%     h_left_ref = semilogy(result_left.summary.eigs, result_left.summary.sigmins, ...
-%         'ko', 'MarkerFaceColor', 'k', 'MarkerSize', 5);
-%     h_leg(end+1) = h_left_ref;
-%     leg_names{end+1} = 'GWW1 refined';
-% end
-%
-% if ~isempty(result_right.summary.eigs)
-%     h_right_ref = semilogy(result_right.summary.eigs, result_right.summary.sigmins, ...
-%         'bo', 'MarkerFaceColor', 'b', 'MarkerSize', 5);
-%     h_leg(end+1) = h_right_ref;
-%     leg_names{end+1} = 'GWW2 refined';
-% end
-%
-% yl = ylim;
-% for i = 1:numel(result_left.summary.eigs)
-%     plot([result_left.summary.eigs(i), result_left.summary.eigs(i)], yl, 'k--', 'LineWidth', 1.0);
-% end
-% for i = 1:numel(result_right.summary.eigs)
-%     plot([result_right.summary.eigs(i), result_right.summary.eigs(i)], yl, 'b--', 'LineWidth', 1.0);
-% end
-% ylim(yl);
-%
-% grid on;
-% xlabel('\lambda');
-% ylabel('\sigma_{min}(Q_B(\lambda))');
-% legend(h_leg, leg_names, 'FontSize', 13, 'Location', 'best');
-% save_plot_eps('polygon_drum_left_right_scan');
-%%
-if do_singular_trace
-    Q_op = @(lam) problem.ops.QB(lam);
-    lam_vec = 12.32:5e-5:12.34;
-    n_trace = 3;
-    sigma_trace = zeros(numel(lam_vec), n_trace);
-    for ilam = 1:numel(lam_vec)
-        svals = svd(Q_op(lam_vec(ilam)), "econ");
-        sigma_trace(ilam, :) = svals(end:-1:end-n_trace+1).';
-    end
-    plot_singular_value_trace(lam_vec, sigma_trace, ...
-        'labels', {'\sigma_k', '\sigma_{k-1}', '\sigma_{k-2}'}, ...
-        'save_name', 'singular_value_trace_cluster');
-end
-%%
-if do_pair_derivative_example
-    lam0 = 12.337050160494;
-    h = 1e-4;
-
-    pair_opts = struct();
-    pair_opts.normalize_columns = cfg.normalize_columns;
-    pair_opts.qr_tau = cfg.qr_tau;
-    pair_opts.pivot = true;
-    pair_opts.sign_fix = true;
-
-    [dQB, ~, ~, pair_info] = approx_QB_derivative_from_Aop( ...
-        problem.ops.A, problem.meta.mB, lam0, h, pair_opts);
-
-    fprintf('\npaired-Q example around lambda = %.12f\n', lam0);
-    fprintf('  rank at lambda-h          : %d\n', pair_info.rank_left);
-    fprintf('  rank at lambda+h          : %d\n', pair_info.rank_right);
-    fprintf('  common selected columns   : %d\n', pair_info.n_common);
-    fprintf('  gap at lambda-h           : %.3e\n', pair_info.gap_left);
-    fprintf('  gap at lambda+h           : %.3e\n', pair_info.gap_right);
-
-    if pair_info.n_common > 0
-        fprintf('  ||QB(lambda+h)-QB(lambda-h)||_2 / (2h) = %.3e\n', norm(dQB, 2));
-    end
-end
-%% post-processing
-a = opts.scan.lamvec(1);
-b = opts.scan.lamvec(end);
-accepted = result.summary.accepted_mask;
-acc_idx = find(accepted);
-cand_acc = result.candidates(accepted);
+refine_opts.pre_refine_filter = [];
+refine_opts.local_analyzer = [];
 
 cluster_opts = struct();
 cluster_opts.cluster_ratio = 100;
@@ -310,15 +51,96 @@ cluster_opts.fd_step = 1e-4;
 cluster_opts.micro_max_points = 4001;
 cluster_opts.dedup_factor = 8;   % dedup tol = dedup_factor * L_fine
 
-if isempty(cand_acc)
-    fprintf('\nNo accepted refined candidates. Skip local cluster resolution.\n');
+% ---------------------------------
+% run the selected experiment
+% ---------------------------------
+spec = polygon_experiment_specs(spec_name);
+
+if isfield(spec, 'pair_members')
+    results = cell(numel(spec.pair_members), 1);
+    for i = 1:numel(spec.pair_members)
+        member = polygon_experiment_specs(spec.pair_members{i});
+        results{i} = run_scan_experiment_one(member, refine_opts, cluster_opts, false);
+    end
+    if do_plots
+        plot_pair_overlay(results, spec);
+    end
 else
+    result = run_scan_experiment_one(spec, refine_opts, cluster_opts, do_plots);
+end
+
+
+%% ============================================================
+% local functions
+% ============================================================
+function result = run_scan_experiment_one(spec, refine_opts, cluster_opts, do_plots)
+    % geometry cfg + scan QR policy
+    cfg = spec.case_fun();
+    cfg.qr_pivot = true;
+    cfg.qr_tau = 1e-13;
+    cfg.Mcorner = spec.Mcorner;
+    cfg.nb_per_edge = spec.nb_per_edge;
+    cfg.nI = spec.nI;
+
+    problem = build_polygon_problem(cfg);
+    sigma_fun_scan = @(lam) problem.ops.sigma(lam);
+
+    % refine QR policy: plain QR, no truncation
+    cfg_refine = cfg;
+    cfg_refine.qr_pivot = false;
+    cfg_refine.qr_tau = [];
+    sigma_fun_refine = @(lam) sigma_polygon(problem.data.geom, cfg_refine, lam);
+
+    scan_opts = struct();
+    scan_opts.lamvec = spec.interval(1):spec.step:spec.interval(2);
+    scan_opts.detect_mode = 'strict_local_min';
+
+    scan = scan_sigma(sigma_fun_scan, scan_opts);
+    candidates = refine_candidates(sigma_fun_refine, scan, refine_opts);
+    summary = summarize_candidates(candidates);
+
+    result = struct();
+    result.spec_name = spec.name;
+    result.scan = scan;
+    result.candidates = candidates;
+    result.summary = summary;
+
+    fprintf('\n### experiment: %s ###\n', spec.name);
+    print_candidate_summary(result);
+
+    % cluster-aware post-processing (only the thin H-shape)
+    if spec.cluster_enable
+        result = resolve_clusters(result, problem, sigma_fun_scan, sigma_fun_refine, ...
+            cfg, refine_opts, cluster_opts, do_plots);
+    end
+
+    if do_plots
+        plot_scan_refine_result(result, ...
+            'problem_name', problem.name, ...
+            'save_name', spec.plot_name);
+    end
+end
+
+
+function result = resolve_clusters(result, problem, sigma_fun_scan, sigma_fun_refine, ...
+        cfg, refine_opts, cluster_opts, do_plots)
+    a = result.scan.lamvec(1);
+    b = result.scan.lamvec(end);
+    accepted = result.summary.accepted_mask;
+    acc_idx = find(accepted);
+    cand_acc = result.candidates(accepted);
+
+    if isempty(cand_acc)
+        fprintf('\nNo accepted refined candidates. Skip local cluster resolution.\n');
+        return;
+    end
+
     fprintf('\n=== Local Cluster Resolution ===\n');
     any_replaced = false;
     for ic = 1:numel(cand_acc)
         cand = cand_acc(ic);
         report = resolve_local_cluster(problem, sigma_fun_scan, sigma_fun_refine, ...
-            cand, [a, b], opts.refine, cfg, cluster_opts);
+            cand, [a, b], refine_opts, cfg, cluster_opts);
         print_cluster_report(report);
 
         % If a deeper re-detection merged with this dip, replace the candidate.
@@ -342,17 +164,47 @@ else
     end
 end
 
-% scan-refine plot, drawn after post-processing so it reflects cluster merges
-if do_plots
-    plot_scan_refine_result(result, ...
-        'problem_name', problem.name, ...
-        'save_name', 'raw_cluster');
+
+function plot_pair_overlay(results, spec)
+    colors = {'k', 'b'};
+    figure;
+    h_leg = gobjects(0);
+    leg_names = {};
+
+    for i = 1:numel(results)
+        res = results{i};
+        c = colors{mod(i-1, numel(colors)) + 1};
+
+        h = semilogy(res.scan.lamvec, res.scan.S, [c '-'], 'LineWidth', 1.2);
+        hold on;
+        h_leg(end+1) = h; %#ok<AGROW>
+        leg_names{end+1} = sprintf('%s scan', spec.pair_labels{i}); %#ok<AGROW>
+
+        if ~isempty(res.summary.eigs)
+            hr = semilogy(res.summary.eigs, res.summary.sigmins, [c 'o'], ...
+                'MarkerFaceColor', c, 'MarkerSize', 5);
+            h_leg(end+1) = hr; %#ok<AGROW>
+            leg_names{end+1} = sprintf('%s refined', spec.pair_labels{i}); %#ok<AGROW>
+        end
+    end
+
+    yl = ylim;
+    for i = 1:numel(results)
+        c = colors{mod(i-1, numel(colors)) + 1};
+        for e = results{i}.summary.eigs(:)'
+            plot([e e], yl, [c '--'], 'LineWidth', 1.0);
+        end
+    end
+    ylim(yl);
+
+    grid on;
+    xlabel('\lambda');
+    ylabel('\sigma_{min}(Q_B(\lambda))');
+    legend(h_leg, leg_names, 'FontSize', 13, 'Location', 'best');
+    save_plot_eps(spec.plot_name);
 end
 
 
-%% ============================================================
-% local function
-% ============================================================
 function print_cluster_report(report)
     fprintf('\n--- Cluster check at lambda* = %.15f ---\n', report.lam_star);
     fprintf('sigma_min              : %.6e\n', report.sigma_min);

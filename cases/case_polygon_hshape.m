@@ -1,7 +1,9 @@
-function cfg = case_polygon_hshape()
+function cfg = case_polygon_hshape(t)
+    if nargin < 1 || isempty(t)
+        t = 0.08;   % channel width; thesis uses 0.08 (cluster) and 0.3 (scan)
+    end
     a = 2;
     l = 1;
-    t = 0.08;
 
     cfg = struct();
     cfg.name = 'polygon_hshape';
