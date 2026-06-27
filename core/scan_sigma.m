@@ -12,7 +12,6 @@ function scan = scan_sigma(sigma_fun, opts)
 %   scan.lamvec
 %   scan.S
 %   scan.candidate_idx
-%   scan.meta
 
     if ~isfield(opts, 'lamvec')
         error('scan_sigma: opts.lamvec is required.');
@@ -42,9 +41,4 @@ function scan = scan_sigma(sigma_fun, opts)
     scan.lamvec = lamvec;
     scan.S = S;
     scan.candidate_idx = J;
-
-    scan.meta = struct();
-    scan.meta.detect_mode = opts.detect_mode;
-    scan.meta.n_scan_points = numel(lamvec);
-    scan.meta.n_candidates = numel(J);
 end

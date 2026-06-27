@@ -29,7 +29,6 @@ function candidates = refine_candidates(sigma_fun, scan, opts)
     end
 
     lamvec = scan.lamvec;
-    S = scan.S;
     J = scan.candidate_idx;
 
     candidates = repmat(empty_candidate_template(), numel(J), 1);
@@ -47,12 +46,7 @@ function candidates = refine_candidates(sigma_fun, scan, opts)
 
         % -------- raw scan information --------
         cand.id = t;
-        cand.scan_index = j;
         cand.scan_lambda = lamvec(j);
-        cand.scan_sigma = S(j);
-
-        cand.left_index = jl;
-        cand.right_index = jr;
         cand.bracket = [a, b];
 
         cand.status = 'raw';
@@ -61,8 +55,6 @@ function candidates = refine_candidates(sigma_fun, scan, opts)
         cand.logs = struct();
         cand.logs.n_calls = 0;
         cand.logs.message = '';
-
-        cand.diagnostics = struct();
 
         % -------- optional pre-filter --------
         if ~isempty(opts.pre_refine_filter)
@@ -80,11 +72,10 @@ function candidates = refine_candidates(sigma_fun, scan, opts)
         counted_obj = make_counted_objective(@(lam) sigma_fun(lam));
 
         try
-            [lam_star, sig_star, info] = opts.minimizer(a, b, counted_obj, opts.minimizer_opts);
+            [lam_star, sig_star, ~] = opts.minimizer(a, b, counted_obj, opts.minimizer_opts);
 
             cand.refined_lambda = lam_star;
             cand.refined_sigma = sig_star;
-            cand.minimizer_info = info;
             cand.logs.n_calls = counted_obj.get_count();
 
             if ~isfinite(lam_star) || ~isfinite(sig_star)
@@ -102,7 +93,6 @@ function candidates = refine_candidates(sigma_fun, scan, opts)
             cand.status = 'failed_exception';
             cand.logs.n_calls = counted_obj.get_count();
             cand.logs.message = ME.message;
-            cand.minimizer_info = struct('status', 'exception');
         end
 
         % -------- optional local analyzer --------
@@ -129,18 +119,12 @@ function cand = empty_candidate_template()
 
     % identity / provenance
     cand.id = [];
-    cand.scan_index = [];
     cand.scan_lambda = [];
-    cand.scan_sigma = [];
-
-    cand.left_index = [];
-    cand.right_index = [];
     cand.bracket = [];
 
     % refined result
     cand.refined_lambda = [];
     cand.refined_sigma = [];
-    cand.minimizer_info = struct();
 
     % status
     cand.status = '';
@@ -148,5 +132,4 @@ function cand = empty_candidate_template()
 
     % bookkeeping
     cand.logs = struct();
-    cand.diagnostics = struct();
 end

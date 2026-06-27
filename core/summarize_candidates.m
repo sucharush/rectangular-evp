@@ -11,7 +11,6 @@ function summary = summarize_candidates(candidates)
         summary.eigs = [];
         summary.sigmins = [];
         summary.brackets = zeros(0,2);
-        summary.scan_indices = [];
         summary.status_list = {};
         return;
     end
@@ -29,11 +28,9 @@ function summary = summarize_candidates(candidates)
         summary.eigs = [];
         summary.sigmins = [];
         summary.brackets = zeros(0,2);
-        summary.scan_indices = [];
     else
         summary.eigs = [candidates(idx).refined_lambda].';
         summary.sigmins = [candidates(idx).refined_sigma].';
         summary.brackets = vertcat(candidates(idx).bracket);
-        summary.scan_indices = [candidates(idx).scan_index].';
     end
 end

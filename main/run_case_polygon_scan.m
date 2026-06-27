@@ -13,7 +13,6 @@ project_root = fileparts(this_dir);
 
 addpath(fullfile(project_root, 'cases'));
 addpath(fullfile(project_root, 'polygon'));
-addpath(fullfile(project_root, 'problem_builders'));
 addpath(fullfile(project_root, 'core'));
 addpath(fullfile(project_root, 'solvers'));
 addpath(fullfile(project_root, 'minimizers'));
@@ -73,7 +72,7 @@ opts.scan.detect_mode = 'strict_local_min';
 opts.refine = struct();
 opts.refine.bracket_halfwidth = 1;
 opts.refine.sigma_cut = 1e-3;
-opts.refine.minimizer = @minimizer_trisection;
+opts.refine.minimizer = @minimizer_golden_section;
 % opts.refine.minimizer = @minimizer_fminsearch;
 opts.refine.minimizer_opts = struct( ...
     'tol_x', 1e-13, ...
@@ -126,10 +125,7 @@ if do_plots
     % plot_polygon_geometry(problem.data.geom, ...
     %     'plot_title', problem.name, ...
     %     'save_name', 'polygon_geometry');
-
-    plot_scan_refine_result(result, ...
-        'problem_name', problem.name, ...
-        'save_name', 'raw_cluster');
+    % scan-refine plot is drawn at the end so it reflects any cluster merge
 end
 result_left = result;
 % %%
@@ -187,7 +183,7 @@ result_left = result;
 % opts.refine.bracket_halfwidth = 1;
 % opts.refine.sigma_cut = 1e-3;
 % opts.refine.minimizer = @minimizer_fminsearch;
-% opts.refine.minimizer = @minimizer_trisection;
+% opts.refine.minimizer = @minimizer_golden_section;
 % opts.refine.minimizer_opts = struct( ...
 %     'tol_x', 1e-13, ...
 %     'tol_fun', 1e-12, ...
@@ -305,171 +301,58 @@ end
 a = opts.scan.lamvec(1);
 b = opts.scan.lamvec(end);
 accepted = result.summary.accepted_mask;
-cand_all = result.candidates;
-cand_acc = cand_all(accepted);
+acc_idx = find(accepted);
+cand_acc = result.candidates(accepted);
 
 cluster_opts = struct();
 cluster_opts.cluster_ratio = 100;
 cluster_opts.fd_step = 1e-4;
 cluster_opts.micro_max_points = 4001;
+cluster_opts.dedup_factor = 8;   % dedup tol = dedup_factor * L_fine
 
 if isempty(cand_acc)
     fprintf('\nNo accepted refined candidates. Skip local cluster resolution.\n');
 else
     fprintf('\n=== Local Cluster Resolution ===\n');
+    any_replaced = false;
     for ic = 1:numel(cand_acc)
         cand = cand_acc(ic);
         report = resolve_local_cluster(problem, sigma_fun_scan, sigma_fun_refine, ...
             cand, [a, b], opts.refine, cfg, cluster_opts);
         print_cluster_report(report);
 
+        % If a deeper re-detection merged with this dip, replace the candidate.
+        if report.merged_replaced
+            gi = acc_idx(ic);
+            result.candidates(gi).refined_lambda = report.merged_lambda;
+            result.candidates(gi).refined_sigma = report.merged_sigma;
+            any_replaced = true;
+        end
+
         if do_plots && report.cluster_detected && ~isempty(report.micro_scan.lamvec)
             plot_local_micro_scan_report(report, ...
                 'save_name', sprintf('local_micro_scan_%02d', ic));
         end
     end
+
+    if any_replaced
+        result.summary = summarize_candidates(result.candidates);
+        fprintf('\n=== Candidate summary after cluster merge: ===\n');
+        print_candidate_summary(result);
+    end
+end
+
+% scan-refine plot, drawn after post-processing so it reflects cluster merges
+if do_plots
+    plot_scan_refine_result(result, ...
+        'problem_name', problem.name, ...
+        'save_name', 'raw_cluster');
 end
 
 
 %% ============================================================
 % local function
 % ============================================================
-function report = resolve_local_cluster(problem, sigma_fun_scan, sigma_fun_refine, ...
-        cand, global_interval, refine_opts, cfg, cluster_opts)
-    lam_star = cand.refined_lambda;
-    L_macro = max(abs(cand.bracket - lam_star));
-
-    [QB_star, factor_info] = build_reference_QB(problem, lam_star, cfg);
-    [~, S] = svd(QB_star, 'econ');
-    svals = diag(S);
-    sigma_min = svals(end);
-
-    k = find(svals < cluster_opts.cluster_ratio * sigma_min, 1, 'first');
-    if isempty(k)
-        k = numel(svals);
-    end
-
-    report = struct();
-    report.lam_star = lam_star;
-    report.sigma_min = sigma_min;
-    report.cluster_index = k;
-    report.cluster_detected = (k < numel(svals));
-    report.n_small_singular = numel(svals) - k + 1;
-    report.svals = svals;
-    report.L_macro = L_macro;
-    report.L_fine = [];
-    report.fd_step = cluster_opts.fd_step;
-    report.response = [];
-    report.reference_rank = factor_info.rank;
-    report.reference_cols = factor_info.selected_cols;
-    report.micro_scan = struct('lamvec', [], 'S', [], 'candidate_idx', []);
-    report.micro_summary = struct('refined_candidates', [], 'extra_mask', []);
-    report.message = '';
-
-    if ~report.cluster_detected
-        report.message = 'No cluster detected at the refined lambda.';
-        return;
-    end
-
-    pair_opts = struct();
-    pair_opts.normalize_columns = false;
-    pair_opts.qr_tau = get_cfg_value(cfg, 'qr_tau', []);
-    pair_opts.pivot = get_cfg_flag(cfg, 'qr_pivot');
-    pair_opts.sign_fix = true;
-
-    [dQB, ~, ~, deriv_info] = approx_QB_derivative_from_Aop( ...
-        problem.ops.A, problem.meta.mB, lam_star, cluster_opts.fd_step, pair_opts);
-    response = norm(dQB, 2);
-    response = 5e-2;
-    report.response = response;
-    report.derivative_info = deriv_info;
-
-    if response <= eps(class(response))
-        report.message = 'Cluster detected, but the finite-difference response is numerically zero.';
-        return;
-    end
-
-    L_fine = 0.5 * sigma_min / response;
-    if ~isfinite(L_fine) || L_fine <= 0
-        report.message = 'Cluster detected, but the adaptive local step is not finite.';
-        return;
-    end
-
-    report.L_fine = L_fine;
-
-    lam_left = max(global_interval(1), lam_star - L_macro);
-    lam_right = min(global_interval(2), lam_star + L_macro);
-    n_micro = max(3, ceil((lam_right - lam_left) / L_fine) + 1);
-
-    if n_micro > cluster_opts.micro_max_points
-        n_micro = cluster_opts.micro_max_points;
-        report.message = sprintf('Micro-grid capped at %d points for efficiency.', n_micro);
-    end
-
-    lamvec = linspace(lam_left, lam_right, n_micro);
-    S_micro = zeros(size(lamvec));
-    for i = 1:numel(lamvec)
-        S_micro(i) = sigma_fun_scan(lamvec(i));
-    end
-
-    J = 2:numel(lamvec)-1;
-    J = J(S_micro(J) < S_micro(J-1) & S_micro(J) < S_micro(J+1));
-
-    micro_scan = struct();
-    micro_scan.lamvec = lamvec;
-    micro_scan.S = S_micro;
-    micro_scan.candidate_idx = J;
-    micro_scan.meta = struct();
-    micro_scan.meta.detect_mode = 'strict_local_min';
-    micro_scan.meta.n_scan_points = numel(lamvec);
-    micro_scan.meta.n_candidates = numel(J);
-
-    refined_candidates = refine_candidates(sigma_fun_refine, micro_scan, refine_opts);
-    extra_mask = local_extra_dip_mask(refined_candidates, lam_star, L_fine);
-
-    report.micro_scan = micro_scan;
-    report.micro_summary.refined_candidates = refined_candidates;
-    report.micro_summary.extra_mask = extra_mask;
-
-    if ~any(extra_mask)
-        if isempty(report.message)
-            report.message = 'Cluster detected, but no extra resolved dip was found in the micro-scan.';
-        end
-    elseif isempty(report.message)
-        report.message = 'Cluster detected and at least one extra local dip was found.';
-    end
-end
-
-
-function [QB, info] = build_reference_QB(problem, lam, cfg)
-    A = problem.ops.A(lam);
-    qr_opts = struct();
-    qr_opts.normalize_columns = false;
-    qr_opts.pivot = get_cfg_flag(cfg, 'qr_pivot');
-    qr_opts.sign_fix = true;
-    qr_opts.qr_tau = get_cfg_value(cfg, 'qr_tau', []);
-    [QB, info] = build_QB_from_A(A, problem.meta.mB, qr_opts);
-end
-
-
-function extra_mask = local_extra_dip_mask(candidates, lam_star, lam_tol)
-    if isempty(candidates)
-        extra_mask = false(0, 1);
-        return;
-    end
-
-    extra_mask = false(numel(candidates), 1);
-    for i = 1:numel(candidates)
-        if ~candidates(i).accepted
-            continue;
-        end
-        if abs(candidates(i).refined_lambda - lam_star) > lam_tol
-            extra_mask(i) = true;
-        end
-    end
-end
-
-
 function print_cluster_report(report)
     fprintf('\n--- Cluster check at lambda* = %.15f ---\n', report.lam_star);
     fprintf('sigma_min              : %.6e\n', report.sigma_min);
@@ -493,7 +376,16 @@ function print_cluster_report(report)
     end
 
     fprintf('L_fine                 : %.6e\n', report.L_fine);
+    fprintf('dedup tol              : %.6e\n', report.dedup_tol);
     fprintf('micro points           : %d\n', numel(report.micro_scan.lamvec));
+
+    if report.merged_replaced
+        fprintf('merged dip             : lambda = %.15f, sigma = %.6e (replaced original sigma %.6e)\n', ...
+            report.merged_lambda, report.merged_sigma, report.refined_sigma_original);
+    else
+        fprintf('merged dip             : lambda = %.15f, sigma = %.6e (original retained, deepest of %d merged)\n', ...
+            report.merged_lambda, report.merged_sigma, report.n_merged);
+    end
 
     n_extra = nnz(report.micro_summary.extra_mask);
     fprintf('extra dips found       : %d\n', n_extra);
@@ -509,19 +401,5 @@ function print_cluster_report(report)
 
     if ~isempty(report.message)
         fprintf('message                : %s\n', report.message);
-    end
-end
-
-
-function value = get_cfg_flag(cfg, name)
-    value = isfield(cfg, name) && ~isempty(cfg.(name)) && cfg.(name);
-end
-
-
-function value = get_cfg_value(cfg, name, default_value)
-    if isfield(cfg, name) && ~isempty(cfg.(name))
-        value = cfg.(name);
-    else
-        value = default_value;
     end
 end
