@@ -2,6 +2,8 @@
 
 Master's project (PdM) — EPFL, Computational Science and Engineering, Spring 2026.
 
+[Master thesis](PdM_SiyuanCheng.pdf)
+
 Numerical experiments accompanying the thesis, which assembles and
 tests some computational approaches for rectangular eigenvalue problems:
 rational approximation via `sketchAAA`, companion linearization, and minimum
